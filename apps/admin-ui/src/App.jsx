@@ -738,6 +738,19 @@ function buildOverviewEvents(resourceData = {}) {
   }));
 }
 
+function hasManagedRows(resourceData = {}) {
+  return [
+    "users",
+    "plans",
+    "proxy-nodes",
+    "inbounds",
+    "transit-relays",
+    "access-nodes",
+    "relay-rules",
+    "agents",
+  ].some((sectionId) => (resourceData[sectionId] || []).length > 0);
+}
+
 function buildOverviewHealthTiles(resourceData = {}) {
   return (resourceData.agents || []).map((agent) => ({
     name: agent.name || agent.id,
@@ -1127,6 +1140,8 @@ function adaptAgent(agent, context) {
 
 function adaptConfigReleases(summary, rawAgents = []) {
   if (!summary) return demoModeEnabled ? configReleases : [];
+  const hasManagedResource = Object.values(summary.counts || {}).some((value) => Number(value) > 0) || rawAgents.length > 0;
+  if (!hasManagedResource) return [];
   const onlineAgents = rawAgents.filter((agent) => agent.status === "online").length;
   return [
     {
@@ -2130,7 +2145,7 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
   const events = buildOverviewEvents(resourceData);
   const healthTiles = buildOverviewHealthTiles(resourceData);
   const configVersion = apiStatus?.summary?.version ? `v${apiStatus.summary.version}` : "v1";
-  const updatedAt = apiStatus?.summary?.configUpdatedAt ? isoText(apiStatus.summary.configUpdatedAt) : "-";
+  const updatedAt = hasManagedRows(resourceData) && apiStatus?.summary?.configUpdatedAt ? isoText(apiStatus.summary.configUpdatedAt) : "暂无";
   return (
     <div className="overview-shell">
       <section className="main-pane main-pane--wide">
@@ -2277,7 +2292,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
 
           <section className="setting-panel">
             <h2>Agent 兼容</h2>
-            <label><span>最低版本</span><input defaultValue="0.3.8" /></label>
+            <label><span>最低版本</span><input defaultValue="0.3.9" /></label>
             <label><span>心跳超时</span><select defaultValue="180s"><option>180s</option><option>300s</option></select></label>
             <label><span>运行时校验</span><select defaultValue="strict"><option value="strict">strict</option><option value="warn">warn only</option></select></label>
           </section>

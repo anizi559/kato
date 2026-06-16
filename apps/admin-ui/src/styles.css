@@ -1252,7 +1252,7 @@ a {
 
 .metric-card:hover,
 .health-tile:hover,
-.task-list button:hover {
+.task-list > button:hover {
   background: #f8fbff;
 }
 
@@ -1319,7 +1319,7 @@ a {
   display: grid;
 }
 
-.task-list button {
+.task-list > button {
   min-height: 72px;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
@@ -1335,28 +1335,28 @@ a {
   text-align: left;
 }
 
-.task-list button:last-child,
-.event-list div:last-child {
+.task-list > button:last-child,
+.event-list > div:last-child {
   border-bottom: 0;
 }
 
-.task-list .status-dot {
+.task-list > button > .status-dot {
   grid-area: dot;
 }
 
-.task-list strong {
+.task-list > button > strong {
   grid-area: title;
   color: #172033;
   font-size: 14px;
 }
 
-.task-list span {
+.task-list > button > span {
   grid-area: meta;
   color: var(--muted);
   font-size: 12px;
 }
 
-.event-list div {
+.event-list > div {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
   gap: 4px 12px;
@@ -1364,7 +1364,7 @@ a {
   border-bottom: 1px solid var(--line);
 }
 
-.event-list span {
+.event-list > div > span {
   grid-row: 1 / span 2;
   display: inline-flex;
   align-items: center;
@@ -1378,12 +1378,12 @@ a {
   font-weight: 700;
 }
 
-.event-list strong {
+.event-list > div > strong {
   color: #172033;
   font-size: 14px;
 }
 
-.event-list small {
+.event-list > div > small {
   color: var(--muted);
   font-size: 12px;
 }

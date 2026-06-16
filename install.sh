@@ -4,14 +4,16 @@ set -euo pipefail
 # Kato 一键安装脚本
 # 适用系统：Debian / Ubuntu，且需要 systemd。
 # 常用方式：
+#   sudo ./install.sh
 #   sudo ./install.sh --role backend-core --repo-url https://github.com/anizi559/kato.git
 #   sudo ./install.sh --role admin-ui --repo-url https://github.com/anizi559/kato.git --backend-url http://后端IP:8080
 #
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.3.1"
+APP_VERSION="0.3.2"
 DEFAULT_INSTALL_ROOT="/opt/kato"
+DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
 DEFAULT_REALM_VERSION="v2.9.4"
 
@@ -85,6 +87,7 @@ Agent / 节点参数：
   --skip-runtime-binaries        不安装 Xray / Hysteria2 / Realm 等运行程序
 
 常用示例：
+  sudo ./install.sh
   sudo ./install.sh --role backend-core --listen-port 8080
   sudo ./install.sh --role admin-ui --backend-url http://156.226.168.215:8080
   sudo ./install.sh --role proxy-node --backend-url http://panel:8080 --bootstrap-token boot_xxx
@@ -102,6 +105,76 @@ warn() {
 die() {
   printf '错误：%s\n' "$*" >&2
   exit 1
+}
+
+can_prompt() {
+  [[ "$non_interactive" != "true" && -t 0 ]]
+}
+
+prompt_line() {
+  local var_name="$1"
+  local question="$2"
+  local default_value="${3:-}"
+  local value
+
+  if [[ -n "$default_value" ]]; then
+    read -r -p "${question} [${default_value}]: " value
+    value="${value:-$default_value}"
+  else
+    read -r -p "${question}: " value
+  fi
+
+  printf -v "$var_name" '%s' "$value"
+}
+
+prompt_required() {
+  local var_name="$1"
+  local question="$2"
+  local default_value="${3:-}"
+  local value=""
+
+  while [[ -z "$value" ]]; do
+    if [[ -n "$default_value" ]]; then
+      read -r -p "${question} [${default_value}]: " value
+      value="${value:-$default_value}"
+    else
+      read -r -p "${question}: " value
+    fi
+    [[ -n "$value" ]] || warn "这个值不能为空，请重新输入"
+  done
+
+  printf -v "$var_name" '%s' "$value"
+}
+
+prompt_yes_no() {
+  local var_name="$1"
+  local question="$2"
+  local default_value="${3:-false}"
+  local default_label choice
+
+  if [[ "$default_value" == "true" ]]; then
+    default_label="Y/n"
+  else
+    default_label="y/N"
+  fi
+
+  while true; do
+    read -r -p "${question} [${default_label}]: " choice
+    choice="${choice:-$default_value}"
+    case "${choice,,}" in
+      y|yes|true|1)
+        printf -v "$var_name" '%s' "true"
+        return
+        ;;
+      n|no|false|0)
+        printf -v "$var_name" '%s' "false"
+        return
+        ;;
+      *)
+        warn "请输入 y 或 n"
+        ;;
+    esac
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -486,6 +559,149 @@ looks_like_source_tree() {
   [[ -f "${dir}/package.json" && -d "${dir}/apps/backend-core" && -d "${dir}/packages/shared" ]]
 }
 
+source_tree_already_available() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  looks_like_source_tree "$PWD" || looks_like_source_tree "$script_dir" || looks_like_source_tree "$(target_source_dir)"
+}
+
+prompt_source_location() {
+  [[ -z "$source_dir" && -z "$repo_url" ]] || return 0
+  source_tree_already_available && return 0
+  can_prompt || return 0
+
+  cat <<MENU
+
+没有在当前目录找到 Kato 源码。
+请选择源码来源：
+  1) 从默认 GitHub 仓库克隆（推荐）：${DEFAULT_REPO_URL}
+  2) 输入自定义 Git 仓库地址
+  3) 输入本机已有源码目录
+  4) 退出安装
+MENU
+  local choice
+  read -r -p "请选择 [1]: " choice
+  choice="${choice:-1}"
+  case "$choice" in
+    1)
+      repo_url="$DEFAULT_REPO_URL"
+      ;;
+    2)
+      prompt_required repo_url "请输入 Git 仓库地址"
+      ;;
+    3)
+      prompt_required source_dir "请输入本机源码目录路径"
+      ;;
+    4)
+      die "已取消安装"
+      ;;
+    *)
+      die "不支持的源码来源选项：$choice"
+      ;;
+  esac
+}
+
+prompt_apt_mirror() {
+  [[ -z "$apt_mirror" ]] || return 0
+  can_prompt || return 0
+
+  cat <<'MENU'
+
+请选择 apt 软件源：
+  1) 不切换，使用系统默认源
+  2) 清华 tuna 镜像源（国内服务器推荐）
+  3) 中科大 ustc 镜像源
+  4) 阿里云 aliyun 镜像源
+MENU
+  local choice
+  read -r -p "请选择 [2]: " choice
+  choice="${choice:-2}"
+  case "$choice" in
+    1) apt_mirror="none" ;;
+    2) apt_mirror="tuna" ;;
+    3) apt_mirror="ustc" ;;
+    4) apt_mirror="aliyun" ;;
+    *) die "不支持的 apt 软件源选项：$choice" ;;
+  esac
+}
+
+prompt_backend_options() {
+  echo
+  log "请填写面板后端参数。直接回车表示使用括号里的默认值。"
+  prompt_line listen_host "后端监听地址；0.0.0.0 表示允许其他服务器访问" "$listen_host"
+  prompt_line listen_port "后端监听端口" "$listen_port"
+
+  if [[ -z "$admin_token" ]]; then
+    read -r -p "管理员 API 密钥（直接回车自动生成强随机密钥）: " admin_token
+  else
+    log "管理员 API 密钥已通过参数或环境变量提供，安装时会直接使用。"
+  fi
+
+  if [[ -z "$admin_cors_origins" ]]; then
+    local set_cors="false"
+    prompt_yes_no set_cors "是否手动填写允许访问后端的前端地址（CORS）" "false"
+    if [[ "$set_cors" == "true" ]]; then
+      prompt_required admin_cors_origins "请输入前端地址，多个地址用英文逗号分隔"
+    fi
+  fi
+}
+
+prompt_admin_ui_options() {
+  echo
+  log "请填写面板前端参数。"
+  prompt_line backend_url "后端 API 地址；前后端同机可直接回车" "${backend_url:-http://127.0.0.1:${listen_port}}"
+  prompt_line admin_ui_port "前端网页监听端口" "$admin_ui_port"
+}
+
+prompt_agent_options() {
+  echo
+  log "请填写节点 Agent 参数。"
+  if [[ -z "$backend_url" ]]; then
+    prompt_required backend_url "面板后端 API 地址，例如 http://1.2.3.4:8080"
+  else
+    prompt_line backend_url "面板后端 API 地址" "$backend_url"
+  fi
+
+  if [[ -z "$bootstrap_token" ]]; then
+    read -r -p "bootstrap token（首次注册必须；已注册节点可回车跳过）: " bootstrap_token
+  else
+    log "bootstrap token 已通过参数或环境变量提供。"
+  fi
+
+  prompt_line agent_name "节点显示名称" "${agent_name:-${role}-$(hostname -s 2>/dev/null || hostname)}"
+  prompt_yes_no agent_auto_start "同步配置后是否自动启动代理运行进程" "$agent_auto_start"
+  prompt_yes_no binary_validation "应用配置前是否执行二进制配置校验" "$binary_validation"
+}
+
+prompt_edge_options() {
+  prompt_line admin_ui_port "入口网页监听端口" "$admin_ui_port"
+}
+
+collect_interactive_options() {
+  can_prompt || return 0
+
+  echo
+  log "进入交互式安装配置。命令行已传入的值会作为默认值。"
+  prompt_source_location
+  prompt_apt_mirror
+
+  case "$role" in
+    backend-core)
+      prompt_backend_options
+      ;;
+    admin-ui)
+      prompt_admin_ui_options
+      ;;
+    frontend-edge|subscription-edge)
+      prompt_edge_options
+      prompt_agent_options
+      ;;
+    proxy-node|transit-relay)
+      prompt_agent_options
+      ;;
+  esac
+}
+
 resolve_source_dir() {
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -511,6 +727,8 @@ resolve_source_dir() {
     return
   fi
 
+  prompt_source_location
+
   if [[ -n "$repo_url" ]]; then
     source_dir="$(target_source_dir)"
     if [[ -d "$source_dir/.git" ]]; then
@@ -525,7 +743,7 @@ resolve_source_dir() {
     return
   fi
 
-  die "找不到 Kato 源码。请在项目根目录运行，或传入 --source-dir，或传入 --repo-url"
+  die "找不到 Kato 源码。请在项目根目录运行，或传入 --source-dir，或传入 --repo-url。交互安装时建议选择默认仓库：${DEFAULT_REPO_URL}"
 }
 
 sync_source_tree() {
@@ -985,6 +1203,7 @@ main() {
   require_root
   require_linux
   load_os_release
+  collect_interactive_options
   configure_apt_mirror
   ensure_base_dependencies
   install_node

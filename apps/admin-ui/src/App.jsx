@@ -365,7 +365,7 @@ const proxyNodes = [
     status: "在线",
     host: "45.91.22.18",
     region: "Hong Kong",
-    agentVersion: "0.3.4",
+    agentVersion: "0.3.5",
     inbounds: "2",
     accessNodes: "4",
     configVersion: "v12",
@@ -381,7 +381,7 @@ const proxyNodes = [
     status: "在线",
     host: "103.77.12.90",
     region: "Singapore",
-    agentVersion: "0.3.4",
+    agentVersion: "0.3.5",
     inbounds: "2",
     accessNodes: "2",
     configVersion: "v11",
@@ -397,7 +397,7 @@ const proxyNodes = [
     status: "待发布",
     host: "160.16.88.40",
     region: "Tokyo",
-    agentVersion: "0.3.4",
+    agentVersion: "0.3.5",
     inbounds: "1",
     accessNodes: "1",
     configVersion: "v13",
@@ -507,7 +507,7 @@ const transitRelays = [
     status: "在线",
     host: "relay-hk.example.com",
     region: "Hong Kong",
-    agentVersion: "0.3.4",
+    agentVersion: "0.3.5",
     rules: "2",
     accessNodes: "2",
     tcp: "支持",
@@ -525,7 +525,7 @@ const transitRelays = [
     status: "在线",
     host: "relay-sg.example.com",
     region: "Singapore",
-    agentVersion: "0.3.4",
+    agentVersion: "0.3.5",
     rules: "1",
     accessNodes: "1",
     tcp: "支持",
@@ -543,7 +543,7 @@ const transitRelays = [
     status: "待发布",
     host: "relay-jp.example.com",
     region: "Tokyo",
-    agentVersion: "0.3.4",
+    agentVersion: "0.3.5",
     rules: "1",
     accessNodes: "1",
     tcp: "支持",
@@ -631,7 +631,7 @@ const frontendEdges = [
     status: "在线",
     host: "tools.example.com",
     region: "Hong Kong",
-    version: "0.3.4",
+    version: "0.3.5",
     certificate: "有效 · 84 天",
     backend: "backend-core-hk",
     camouflage: "大小写数字转换",
@@ -647,7 +647,7 @@ const frontendEdges = [
     status: "待发布",
     host: "calc.example.com",
     region: "Hong Kong",
-    version: "0.3.4",
+    version: "0.3.5",
     certificate: "待签发",
     backend: "backend-core-hk",
     camouflage: "进制转换",
@@ -730,7 +730,7 @@ const agents = [
     status: "在线",
     role: "proxy-node",
     boundResource: "proxy-hk-01",
-    version: "0.3.4",
+    version: "0.3.5",
     capabilities: "xray, hysteria2",
     heartbeat: "23 秒前",
     configVersion: "v12",
@@ -746,7 +746,7 @@ const agents = [
     status: "在线",
     role: "transit-relay",
     boundResource: "relay-hk-01",
-    version: "0.3.4",
+    version: "0.3.5",
     capabilities: "realm",
     heartbeat: "18 秒前",
     configVersion: "v12",
@@ -1389,7 +1389,7 @@ const resourceConfigs = {
     filters: [
       { key: "region", label: "区域", options: ["全部", "Hong Kong", "Singapore", "Tokyo", "Los Angeles"] },
       { key: "status", label: "状态", options: ["全部", "在线", "待发布", "离线"] },
-      { key: "agentVersion", label: "版本", options: ["全部", "0.3.4", "0.2.4"] },
+      { key: "agentVersion", label: "版本", options: ["全部", "0.3.5", "0.2.4"] },
     ],
     detailRows: [["公网地址", "host"], ["区域", "region"], ["Agent 版本", "agentVersion"], ["协议入站", "inbounds"], ["访问节点", "accessNodes"], ["最近心跳", "heartbeat"]],
     relationRows: [["配置版本", "configVersion"], ["绑定 Agent", (row) => `agent-${row.id}`], ["状态", "status"]],
@@ -1564,7 +1564,7 @@ const resourceConfigs = {
     segmentKey: "role",
     filters: [
       { key: "status", label: "状态", options: ["全部", "在线", "离线"] },
-      { key: "version", label: "版本", options: ["全部", "0.3.4", "0.2.4"] },
+      { key: "version", label: "版本", options: ["全部", "0.3.5", "0.2.4"] },
       { key: "lastApply", label: "应用", options: ["全部", "成功", "离线容灾"] },
     ],
     detailRows: [["角色", "role"], ["绑定资源", "boundResource"], ["状态", "status"], ["版本", "version"], ["能力", "capabilities"], ["最近心跳", "heartbeat"]],
@@ -3199,7 +3199,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
 
           <section className="setting-panel">
             <h2>Agent 兼容</h2>
-            <label><span>最低版本</span><input defaultValue="0.3.4" /></label>
+            <label><span>最低版本</span><input defaultValue="0.3.5" /></label>
             <label><span>心跳超时</span><select defaultValue="180s"><option>180s</option><option>300s</option></select></label>
             <label><span>运行时校验</span><select defaultValue="strict"><option value="strict">strict</option><option value="warn">warn only</option></select></label>
           </section>

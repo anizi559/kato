@@ -1,4 +1,21 @@
 {
+  "_说明": {
+    "用途": "节点 Agent 示例配置。代理节点、中转服务器、订阅入口服务器都会使用类似配置。",
+    "backendUrl": "面板后端 API 地址，节点会定时连接它拉取配置。",
+    "role": "当前服务器角色。常用值：proxy-node 代理节点，transit-relay 中转服务器。",
+    "name": "节点在面板里显示的名称，建议写成容易识别的位置和用途。",
+    "bootstrapToken": "首次注册用的一次性 token。注册成功后会保存状态，后续可以不再填写。",
+    "statePath": "节点注册状态文件，里面有 agentId 和密钥，请勿泄露。",
+    "lastKnownGoodPath": "最后一次成功下发的配置。后端断联时节点会继续使用它提供服务。",
+    "renderedConfigPath": "Agent 渲染出的完整运行配置预览。",
+    "runtimeDir": "Xray / Hysteria2 / Realm 等运行配置的落盘目录。",
+    "backupDir": "旧配置备份目录。",
+    "processDir": "托管运行进程的状态目录。",
+    "logDir": "节点运行日志目录。",
+    "binaryValidation": "是否在应用配置前调用运行程序做配置校验。",
+    "autoStart": "同步配置后是否自动启动代理运行进程。",
+    "binaries": "各运行程序的路径。系统安装后通常在 /usr/local/bin。"
+  },
   "backendUrl": "http://127.0.0.1:8080",
   "role": "proxy-node",
   "name": "test-node",

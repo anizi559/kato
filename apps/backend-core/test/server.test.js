@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { PROTOCOLS } from "../../../packages/shared/src/protocol.js";
+import { PROTOCOLS, VERSION } from "../../../packages/shared/src/protocol.js";
 import { createBackendApp } from "../src/server.js";
 
 const ADMIN_TOKEN = "test-admin";
@@ -34,7 +34,7 @@ test("backend health and version endpoints", async () => {
     assert.equal(health.component, "backend-core");
 
     const version = await fetch(`${app.url}/version`).then((res) => res.json());
-    assert.equal(version.version, "0.3.0");
+    assert.equal(version.version, VERSION);
     assert.equal(version.schemaVersion, 2);
   } finally {
     await app.close();
@@ -397,7 +397,7 @@ async function registerAgent(app, bootstrapToken, hostname) {
     method: "POST",
     body: {
       bootstrapToken,
-      agentVersion: "0.3.0",
+      agentVersion: VERSION,
       hostname
     }
   });

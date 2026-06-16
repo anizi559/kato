@@ -1129,6 +1129,61 @@ a {
   font-size: 16px;
 }
 
+.empty-panel {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  gap: 9px;
+  padding: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--muted);
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(20, 37, 64, 0.04);
+}
+
+.empty-panel--compact {
+  min-height: 148px;
+  border: 0;
+  box-shadow: none;
+}
+
+.empty-panel svg {
+  color: var(--blue);
+}
+
+.empty-panel strong {
+  color: #172033;
+  font-size: 15px;
+}
+
+.empty-panel span {
+  max-width: 360px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.task-list .empty-panel,
+.event-list .empty-panel {
+  border-radius: 0 0 6px 6px;
+}
+
+.resource-health-grid > .empty-panel {
+  grid-column: 1 / -1;
+}
+
+.inspector--empty {
+  display: grid;
+  align-content: center;
+  padding: 20px;
+}
+
+.inspector--empty .empty-panel {
+  padding: 24px 10px;
+}
+
 .overview-shell,
 .settings-shell {
   min-height: calc(100vh - 61px);

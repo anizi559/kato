@@ -199,7 +199,7 @@ async function ensureAgent(role, resourceId, name, capabilities) {
   });
   const registration = await publicPost("/api/v1/agents/register", {
     bootstrapToken: bootstrap.token,
-    agentVersion: "0.3.3",
+    agentVersion: "0.3.4",
     hostname: name,
     capabilities
   });

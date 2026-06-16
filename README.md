@@ -2,7 +2,7 @@
 
 自研代理管理系统 monorepo。
 
-当前版本：`0.3.3`
+当前版本：`0.3.4`
 
 已完成阶段：
 
@@ -59,6 +59,17 @@ sudo ./install.sh --role transit-relay --backend-url http://<backend-ip>:8080 --
 
 ```bash
 sudo ./install.sh --role backend-core --apt-mirror tuna
+```
+
+低配服务器建议：
+
+- 前端构建会占用较多 CPU 和内存。安装脚本会在 RAM 小于约 2GB 且 swap 不足时自动创建 `/swapfile-kato`，降低构建时 SSH 卡死或断开的概率。
+- 远程安装建议先进入 `tmux` 再运行安装脚本。即使 SSH 断开，也可以重新登录后用 `tmux attach -t kato-install` 回到安装现场。
+
+```bash
+apt update && apt install -y tmux
+tmux new -s kato-install
+bash <(curl -fsSL https://raw.githubusercontent.com/anizi559/kato/main/install.sh)
 ```
 
 主要安装路径：

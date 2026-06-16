@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.3.4"
+APP_VERSION="0.3.5"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -698,7 +698,7 @@ prompt_backend_options() {
 prompt_admin_ui_options() {
   echo
   log "请填写面板前端参数。"
-  prompt_required backend_url "后端 API 地址，例如 http://后端IP:8080" "${backend_url:-http://127.0.0.1:${listen_port}}"
+  prompt_required backend_url "后端 API 地址，例如 http://后端IP:8080；也可以只填 后端IP:8080" "${backend_url:-http://127.0.0.1:${listen_port}}"
   if [[ -z "$frontend_pairing_token" ]]; then
     prompt_required frontend_pairing_token "后端安装完成输出的前端配对 token"
   else
@@ -715,7 +715,7 @@ prompt_agent_options() {
   echo
   log "请填写节点 Agent 参数。"
   if [[ -z "$backend_url" ]]; then
-    prompt_required backend_url "面板后端 API 地址，例如 http://1.2.3.4:8080"
+    prompt_required backend_url "面板后端 API 地址，例如 http://1.2.3.4:8080；也可以只填 1.2.3.4:8080"
   else
     prompt_line backend_url "面板后端 API 地址" "$backend_url"
   fi
@@ -1011,6 +1011,20 @@ swap_total_mb() {
   awk '/SwapTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null || printf '0'
 }
 
+normalize_backend_url() {
+  local value="$1"
+  value="${value%/}"
+  [[ -n "$value" ]] || return 1
+  case "$value" in
+    http://*|https://*)
+      printf '%s' "$value"
+      ;;
+    *)
+      printf 'http://%s' "$value"
+      ;;
+  esac
+}
+
 ensure_frontend_build_memory() {
   local mem_mb swap_mb swap_path="/swapfile-kato" swap_size_mb=2048
   mem_mb="$(memory_total_mb)"
@@ -1134,7 +1148,8 @@ install_admin_ui() {
   normalized_admin_path="$(normalize_panel_admin_path "$panel_admin_path")"
   panel_admin_path="$normalized_admin_path"
   admin_base="${panel_admin_path}/"
-  backend_upstream="${backend_url%/}"
+  backend_upstream="$(normalize_backend_url "$backend_url")"
+  backend_url="$backend_upstream"
 
   ensure_frontend_build_memory
 
@@ -1285,6 +1300,7 @@ install_runtime_binaries() {
 
 write_agent_config() {
   [[ -n "$backend_url" ]] || die "安装 ${role} 必须填写 --backend-url，例如：http://后端IP:8080"
+  backend_url="$(normalize_backend_url "$backend_url")"
   if [[ -z "$agent_name" ]]; then
     agent_name="${role}-$(hostname -s 2>/dev/null || hostname)"
   fi

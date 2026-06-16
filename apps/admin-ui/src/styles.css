@@ -1282,6 +1282,127 @@ a {
   margin-bottom: 18px;
 }
 
+.workspace-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.page-header--compact {
+  margin-bottom: 14px;
+}
+
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f6f9fd;
+}
+
+.workspace-tab {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #526078;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.workspace-tab:hover {
+  color: var(--blue);
+  background: #ffffff;
+}
+
+.workspace-tab--active {
+  color: var(--blue);
+  border-color: #c8d9f6;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(28, 101, 222, 0.08);
+}
+
+.overview-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.insight-bars,
+.insight-stack,
+.insight-kpis {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px 18px;
+}
+
+.insight-bars button,
+.insight-stack button,
+.insight-kpis button {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  text-align: left;
+}
+
+.insight-bars button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  padding: 12px;
+}
+
+.insight-bars span,
+.insight-stack span,
+.insight-kpis span {
+  color: #526078;
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.insight-bars strong,
+.insight-stack strong,
+.insight-kpis strong {
+  color: #172033;
+  font-size: 20px;
+}
+
+.insight-bars i {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1769e8, #33b6a2);
+}
+
+.insight-stack button {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+}
+
+.insight-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.insight-kpis button {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 14px;
+}
+
 .panel {
   min-width: 0;
   overflow: hidden;
@@ -1506,6 +1627,10 @@ a {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .overview-insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1633,8 +1758,23 @@ a {
   }
 
   .dashboard-grid,
+  .overview-insight-grid,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .workspace-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workspace-tab {
+    flex: 0 0 auto;
   }
 
   .setting-panel--wide {
@@ -1680,7 +1820,8 @@ a {
 
   .status-strip,
   .metric-grid,
-  .resource-health-grid {
+  .resource-health-grid,
+  .insight-kpis {
     grid-template-columns: 1fr;
   }
 

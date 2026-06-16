@@ -11,13 +11,14 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.3.9"
+APP_VERSION="0.4.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
 DEFAULT_REALM_VERSION="v2.9.4"
 
 role=""
+action="${KATO_ACTION:-install}"
 source_dir="${KATO_SOURCE_DIR:-}"
 repo_url="${KATO_REPO_URL:-}"
 install_root="${KATO_INSTALL_ROOT:-$DEFAULT_INSTALL_ROOT}"
@@ -27,11 +28,18 @@ apt_mirror="${KATO_APT_MIRROR:-}"
 skip_deps="false"
 skip_source_sync="false"
 skip_runtime_binaries="false"
+force_runtime_binaries="false"
 non_interactive="false"
 
 listen_host="${KATO_LISTEN_HOST:-0.0.0.0}"
 listen_port="${KATO_LISTEN_PORT:-8080}"
 admin_ui_port="${KATO_ADMIN_UI_PORT:-80}"
+listen_host_explicit="${KATO_LISTEN_HOST:+true}"
+listen_port_explicit="${KATO_LISTEN_PORT:+true}"
+admin_ui_port_explicit="${KATO_ADMIN_UI_PORT:+true}"
+listen_host_explicit="${listen_host_explicit:-false}"
+listen_port_explicit="${listen_port_explicit:-false}"
+admin_ui_port_explicit="${admin_ui_port_explicit:-false}"
 backend_url="${KATO_BACKEND_URL:-}"
 admin_token="${BACKEND_ADMIN_TOKEN:-${KATO_ADMIN_TOKEN:-}}"
 admin_cors_origins="${BACKEND_ADMIN_CORS_ORIGINS:-}"
@@ -50,6 +58,11 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
 
 用法：
   sudo ./install.sh --role <role> [options]
+  sudo ./install.sh --upgrade --role <role> [options]
+
+安装 / 升级：
+  --action <install|upgrade>     install 表示安装或重装；upgrade 表示升级已有角色
+  --upgrade                      等同于 --action upgrade，默认从 GitHub 升级到最新版本
 
 安装角色：
   backend-core       面板后端 API、本地数据库、管理员账号初始化
@@ -67,6 +80,7 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
                                   切换 apt 软件源；国内服务器建议 tuna 或 aliyun
   --skip-deps                    跳过系统依赖和 Node.js 安装
   --skip-source-sync             直接使用当前源码目录，不复制到安装目录
+  --force-runtime-binaries       重新下载 Xray / Hysteria2 / Realm；升级模式默认开启
   --non-interactive              非交互模式；缺少必要参数时直接失败，不弹菜单
 
 后端参数：
@@ -98,6 +112,7 @@ Agent / 节点参数：
   sudo ./install.sh --role backend-core --listen-port 8080
   sudo ./install.sh --role admin-ui --backend-url http://156.226.168.215:8080 --frontend-token front_xxx
   sudo ./install.sh --role proxy-node --backend-url http://panel:8080 --bootstrap-token boot_xxx
+  sudo ./install.sh --upgrade --role admin-ui
 USAGE
 }
 
@@ -208,6 +223,18 @@ prompt_yes_no() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --action)
+      action="${2:-}"
+      shift 2
+      ;;
+    --upgrade)
+      action="upgrade"
+      shift
+      ;;
+    --install)
+      action="install"
+      shift
+      ;;
     --role)
       role="${2:-}"
       shift 2
@@ -238,10 +265,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --listen-host)
       listen_host="${2:-}"
+      listen_host_explicit="true"
       shift 2
       ;;
     --listen-port)
       listen_port="${2:-}"
+      listen_port_explicit="true"
       shift 2
       ;;
     --admin-token)
@@ -266,6 +295,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --admin-ui-port)
       admin_ui_port="${2:-}"
+      admin_ui_port_explicit="true"
       shift 2
       ;;
     --frontend-token|--frontend-pairing-token|--pairing-token)
@@ -302,6 +332,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-runtime-binaries)
       skip_runtime_binaries="true"
+      shift
+      ;;
+    --force-runtime-binaries)
+      force_runtime_binaries="true"
       shift
       ;;
     --non-interactive)
@@ -344,14 +378,45 @@ normalize_role() {
   esac
 }
 
+normalize_action() {
+  case "$1" in
+    install|安装|reinstall)
+      printf 'install'
+      ;;
+    upgrade|升级|update)
+      printf 'upgrade'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+prompt_action() {
+  can_prompt || return 0
+  cat <<'MENU'
+请选择要执行的操作：
+  1) 安装 / 重装服务器角色
+  2) 升级已有服务器角色（默认拉取 GitHub 最新版本）
+MENU
+  local choice
+  read -r -p "请输入序号 [1]: " choice
+  choice="${choice:-1}"
+  case "$choice" in
+    1) action="install" ;;
+    2) action="upgrade" ;;
+    *) die "不支持的操作序号：$choice" ;;
+  esac
+}
+
 prompt_role() {
   if [[ "$non_interactive" == "true" || ! -t 0 ]]; then
     usage >&2
-    die "缺少 --role 参数，请指定要安装的角色"
+    die "缺少 --role 参数，请指定要安装或升级的角色"
   fi
 
   cat <<'MENU'
-请选择要安装的服务器角色：
+请选择服务器角色：
   1) backend-core       面板后端 API、数据库、管理员账号
   2) admin-ui           面板前端服务器（根路径工具站，隐藏路径进后台）
   3) subscription-edge  订阅入口服务器
@@ -369,8 +434,39 @@ MENU
   esac
 }
 
+detect_installed_role() {
+  local detected=""
+  if [[ -f /etc/kato/agent.json ]]; then
+    detected="$(sed -n 's/.*"role"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /etc/kato/agent.json | head -n 1)"
+  fi
+  if [[ -z "$detected" && -f /etc/kato/backend-core.env ]]; then
+    detected="backend-core"
+  fi
+  if [[ -z "$detected" && -f /etc/nginx/sites-available/kato-panel-frontend.conf ]]; then
+    detected="admin-ui"
+  fi
+  if [[ -n "$detected" ]]; then
+    role="$detected"
+    return 0
+  fi
+  return 1
+}
+
+if ! action="$(normalize_action "$action")"; then
+  usage >&2
+  die "不支持的操作类型：$action"
+fi
+
+if [[ -z "${KATO_ACTION:-}" && "$action" == "install" && -z "$role" ]]; then
+  prompt_action
+fi
+
 if [[ -z "$role" ]]; then
-  prompt_role
+  if [[ "$action" == "upgrade" ]] && detect_installed_role; then
+    log "检测到当前服务器已安装角色：${role}"
+  else
+    prompt_role
+  fi
 fi
 
 if ! role="$(normalize_role "$role")"; then
@@ -610,6 +706,10 @@ source_tree_already_available() {
 
 prompt_source_location() {
   [[ -z "$source_dir" && -z "$repo_url" ]] || return 0
+  if [[ "$action" == "upgrade" ]]; then
+    repo_url="$DEFAULT_REPO_URL"
+    return 0
+  fi
   source_tree_already_available && return 0
   can_prompt || return 0
 
@@ -642,6 +742,30 @@ MENU
       die "不支持的源码来源选项：$choice"
       ;;
   esac
+}
+
+prepare_upgrade_defaults() {
+  [[ "$action" == "upgrade" ]] || return 0
+  [[ -n "$source_dir" || -n "$repo_url" ]] || repo_url="$DEFAULT_REPO_URL"
+  force_runtime_binaries="true"
+}
+
+checkout_source_from_repo() {
+  local target
+  target="$(target_source_dir)"
+  [[ -n "$repo_url" ]] || die "缺少 Git 仓库地址"
+  if [[ -d "$target/.git" ]]; then
+    log "正在从仓库升级源码：${repo_url}"
+    git -C "$target" remote set-url origin "$repo_url" >/dev/null 2>&1 || true
+    git -C "$target" fetch --depth 1 origin main
+    git -C "$target" checkout -B main FETCH_HEAD
+  else
+    log "正在从仓库克隆最新源码：${repo_url}"
+    rm -rf "$target"
+    git clone --depth 1 "$repo_url" "$target"
+  fi
+  chmod +x "${target}/install.sh" 2>/dev/null || true
+  source_dir="$target"
 }
 
 prompt_apt_mirror() {
@@ -739,9 +863,14 @@ collect_interactive_options() {
   can_prompt || return 0
 
   echo
-  log "进入交互式安装配置。命令行已传入的值会作为默认值。"
+  log "进入交互式${action}配置。命令行已传入的值会作为默认值。"
   prompt_source_location
   prompt_apt_mirror
+
+  if [[ "$action" == "upgrade" ]]; then
+    log "升级模式会优先读取当前服务器已有配置，默认升级到 GitHub 最新版本。"
+    return 0
+  fi
 
   case "$role" in
     backend-core)
@@ -767,6 +896,11 @@ resolve_source_dir() {
   if [[ -n "$source_dir" ]]; then
     source_dir="$(cd "$source_dir" && pwd)"
     looks_like_source_tree "$source_dir" || die "--source-dir 指向的目录不是有效的 Kato 源码目录：$source_dir"
+    return
+  fi
+
+  if [[ "$action" == "upgrade" && -n "$repo_url" ]]; then
+    checkout_source_from_repo
     return
   fi
 
@@ -940,11 +1074,7 @@ write_systemd_service() {
   chmod 0644 "/etc/systemd/system/${name}.service"
 }
 
-install_backend_core() {
-  log "正在安装面板后端 backend-core"
-  write_backend_config
-  initialize_backend_store
-
+write_backend_service() {
   write_systemd_service "kato-backend-core" "[Unit]
 Description=Kato 面板后端服务
 After=network-online.target
@@ -967,6 +1097,13 @@ ReadWritePaths=/var/lib/kato /var/log/kato
 
 [Install]
 WantedBy=multi-user.target"
+}
+
+install_backend_core() {
+  log "正在安装面板后端 backend-core"
+  write_backend_config
+  initialize_backend_store
+  write_backend_service
 
   systemctl daemon-reload
   systemctl enable --now kato-backend-core.service
@@ -1223,7 +1360,7 @@ github_latest_tag() {
 }
 
 install_xray() {
-  if command_exists xray; then
+  if command_exists xray && [[ "$force_runtime_binaries" != "true" ]]; then
     log "Xray 已安装：$(xray version 2>/dev/null | head -n 1 || true)"
     return
   fi
@@ -1245,7 +1382,7 @@ install_xray() {
 }
 
 install_hysteria() {
-  if command_exists hysteria; then
+  if command_exists hysteria && [[ "$force_runtime_binaries" != "true" ]]; then
     log "Hysteria 已安装：$(hysteria version 2>/dev/null | head -n 1 || true)"
     return
   fi
@@ -1266,7 +1403,7 @@ install_hysteria() {
 }
 
 install_realm() {
-  if command_exists realm; then
+  if command_exists realm && [[ "$force_runtime_binaries" != "true" ]]; then
     log "Realm 已安装：$(realm --version 2>&1 | head -n 1 || true)"
     return
   fi
@@ -1459,18 +1596,115 @@ EOF
   curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
 }
 
-main() {
-  require_root
-  require_linux
-  load_os_release
-  collect_interactive_options
-  configure_apt_mirror
-  ensure_base_dependencies
-  install_node
-  resolve_source_dir
-  sync_source_tree
-  ensure_kato_user_and_dirs
+json_read() {
+  local file="$1"
+  local expr="$2"
+  [[ -f "$file" ]] || return 0
+  jq -r "${expr} // empty" "$file" 2>/dev/null || true
+}
 
+load_existing_backend_config() {
+  local config_path="/etc/kato/backend-core.json"
+  local env_path="/etc/kato/backend-core.env"
+  if [[ -f "$config_path" ]]; then
+    [[ "$listen_host_explicit" == "true" ]] || listen_host="$(json_read "$config_path" '.host')"
+    [[ "$listen_port_explicit" == "true" ]] || listen_port="$(json_read "$config_path" '.port')"
+    admin_token="${admin_token:-$(json_read "$config_path" '.adminToken')}"
+    admin_cors_origins="${admin_cors_origins:-$(json_read "$config_path" '.adminCorsOrigins | join(",")')}"
+  fi
+  if [[ -f "$env_path" ]]; then
+    admin_token="${admin_token:-$(awk -F= '/^BACKEND_ADMIN_TOKEN=/{print $2; exit}' "$env_path")}"
+    admin_cors_origins="${admin_cors_origins:-$(awk -F= '/^BACKEND_ADMIN_CORS_ORIGINS=/{print $2; exit}' "$env_path")}"
+  fi
+  listen_host="${listen_host:-0.0.0.0}"
+  listen_port="${listen_port:-8080}"
+}
+
+load_existing_admin_ui_config() {
+  local conf="/etc/nginx/sites-available/kato-panel-frontend.conf"
+  local existing_port
+  [[ -f "$conf" ]] || return 0
+  backend_url="${backend_url:-$(awk '/proxy_pass /{gsub(";","",$2); print $2; exit}' "$conf")}"
+  frontend_pairing_token="${frontend_pairing_token:-$(awk '/X-Frontend-Token/{gsub(";","",$3); print $3; exit}' "$conf")}"
+  panel_admin_path="${panel_admin_path:-$(awk '$1=="location" && $2=="="{print $3; exit}' "$conf")}"
+  existing_port="$(awk '/listen / && /default_server/ && $2 !~ /^\[/{gsub(";","",$2); print $2; exit}' "$conf")"
+  [[ "$admin_ui_port_explicit" == "true" || -z "$existing_port" ]] || admin_ui_port="$existing_port"
+  admin_ui_port="${admin_ui_port:-80}"
+}
+
+load_existing_agent_config() {
+  local config_path="/etc/kato/agent.json"
+  [[ -f "$config_path" ]] || return 0
+  backend_url="${backend_url:-$(json_read "$config_path" '.backendUrl')}"
+  agent_name="${agent_name:-$(json_read "$config_path" '.name')}"
+  bootstrap_token="${bootstrap_token:-$(json_read "$config_path" '.bootstrapToken')}"
+  agent_auto_start="${agent_auto_start:-$(json_read "$config_path" '.autoStart')}"
+  binary_validation="${binary_validation:-$(json_read "$config_path" '.binaryValidation')}"
+  role="${role:-$(json_read "$config_path" '.role')}"
+}
+
+create_upgrade_backup() {
+  local backup_dir="/var/lib/kato/backups"
+  local backup_path="${backup_dir}/upgrade-${role}-$(date '+%Y%m%d%H%M%S').tar.gz"
+  mkdir -p "$backup_dir"
+  tar -czf "$backup_path" --ignore-failed-read /etc/kato /var/lib/kato 2>/dev/null || true
+  chown -R kato:kato "$backup_dir" 2>/dev/null || true
+  log "升级前备份已创建：${backup_path}"
+}
+
+upgrade_backend_core() {
+  log "正在升级面板后端 backend-core"
+  load_existing_backend_config
+  create_upgrade_backup
+  write_backend_config
+  write_backend_service
+  systemctl daemon-reload
+  systemctl enable --now kato-backend-core.service
+  systemctl restart kato-backend-core.service
+  wait_for_backend
+  log "面板后端升级完成，当前版本：${APP_VERSION}"
+}
+
+upgrade_admin_ui() {
+  log "正在升级面板前端服务器 admin-ui"
+  load_existing_admin_ui_config
+  if [[ -z "$backend_url" ]]; then
+    can_prompt || die "未读取到后端 API 地址，请传入 --backend-url"
+    prompt_required backend_url "未读取到后端 API 地址，请输入，例如 http://后端IP:8080"
+  fi
+  if [[ -z "$frontend_pairing_token" ]]; then
+    can_prompt || die "未读取到前端配对 token，请传入 --frontend-token"
+    prompt_required frontend_pairing_token "未读取到前端配对 token，请输入"
+  fi
+  create_upgrade_backup
+  install_admin_ui
+  log "面板前端升级完成，当前版本：${APP_VERSION}"
+}
+
+upgrade_agent_role() {
+  log "正在升级节点 Agent，角色：${role}"
+  load_existing_agent_config
+  if [[ -z "$backend_url" ]]; then
+    can_prompt || die "未读取到后端 API 地址，请传入 --backend-url"
+    prompt_required backend_url "未读取到后端 API 地址，请输入，例如 http://后端IP:8080"
+  fi
+  create_upgrade_backup
+  case "$role" in
+    frontend-edge|subscription-edge)
+      install_edge_placeholder "$role"
+      install_agent_role
+      ;;
+    proxy-node|transit-relay)
+      install_agent_role
+      ;;
+    *)
+      die "不支持的 Agent 升级角色：${role}"
+      ;;
+  esac
+  log "节点 Agent 升级完成，当前版本：${APP_VERSION}"
+}
+
+run_install_action() {
   case "$role" in
     backend-core)
       install_backend_core
@@ -1493,8 +1727,45 @@ main() {
       die "不支持的安装角色：${role}"
       ;;
   esac
+}
 
-  log "安装完成，服务器角色：${role}"
+run_upgrade_action() {
+  case "$role" in
+    backend-core)
+      upgrade_backend_core
+      ;;
+    admin-ui)
+      upgrade_admin_ui
+      ;;
+    frontend-edge|subscription-edge|proxy-node|transit-relay)
+      upgrade_agent_role
+      ;;
+    *)
+      die "不支持的升级角色：${role}"
+      ;;
+  esac
+}
+
+main() {
+  require_root
+  require_linux
+  load_os_release
+  collect_interactive_options
+  prepare_upgrade_defaults
+  configure_apt_mirror
+  ensure_base_dependencies
+  install_node
+  resolve_source_dir
+  sync_source_tree
+  ensure_kato_user_and_dirs
+
+  if [[ "$action" == "upgrade" ]]; then
+    run_upgrade_action
+  else
+    run_install_action
+  fi
+
+  log "${action} 完成，服务器角色：${role}"
 }
 
 main "$@"

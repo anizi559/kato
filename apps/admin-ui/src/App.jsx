@@ -50,23 +50,10 @@ import {
 const navItems = [
   { id: "overview", label: "总览", icon: IconHome2 },
   { id: "users", label: "用户", icon: IconUsersGroup },
-  { id: "plans", label: "套餐", icon: IconStack2 },
+  { id: "plans", label: "权限组", icon: IconStack2 },
   { id: "access-nodes", label: "访问节点", icon: IconNetwork },
-  { id: "proxy-nodes", label: "代理节点", icon: IconCloudComputing },
-  { id: "inbounds", label: "协议入站", icon: IconRoute },
-  { id: "transit-relays", label: "中转服务器", icon: IconGitBranch },
-  { id: "relay-rules", label: "转发规则", icon: IconActivityHeartbeat },
-  { id: "frontend-edges", label: "前端入口", icon: IconShieldLock },
-  { id: "subscription-edges", label: "订阅入口", icon: IconNetwork },
-  { id: "subscription-policies", label: "订阅策略", icon: IconAdjustmentsHorizontal },
-  { id: "config", label: "配置发布", icon: IconFileCode },
-  { id: "agents", label: "Agent", icon: IconCloudComputing },
-  { id: "health", label: "健康检查", icon: IconActivityHeartbeat },
-  { id: "alerts", label: "告警", icon: IconBellRinging },
-  { id: "traffic", label: "流量统计", icon: IconSelector },
-  { id: "domains", label: "域名证书", icon: IconExternalLink },
-  { id: "audit-logs", label: "审计日志", icon: IconFileCode },
-  { id: "backups", label: "备份恢复", icon: IconCopy },
+  { id: "servers", label: "服务器管理", icon: IconCloudComputing },
+  { id: "monitor", label: "监控日志", icon: IconBellRinging },
   { id: "settings", label: "系统设置", icon: IconSettings },
 ];
 
@@ -93,7 +80,7 @@ const columns = {
   users: [
     { key: "id", label: "用户名", primary: true, width: "190px", subKey: "summary" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
-    { key: "plan", label: "套餐", width: "76px" },
+    { key: "plan", label: "权限组", width: "76px" },
     { key: "expiresAt", label: "到期时间", width: "104px" },
     { key: "trafficUsed", label: "流量", width: "124px" },
     { key: "protocols", label: "协议", width: "104px" },
@@ -102,7 +89,7 @@ const columns = {
     { key: "configVersion", label: "版本", width: "52px" },
   ],
   plans: [
-    { key: "name", label: "套餐", primary: true, width: "154px", subKey: "summary" },
+    { key: "name", label: "权限组", primary: true, width: "154px", subKey: "summary" },
     { key: "status", label: "状态", width: "68px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "trafficQuota", label: "流量额度", width: "92px" },
     { key: "duration", label: "有效期", width: "76px" },
@@ -117,7 +104,7 @@ const columns = {
     { key: "protocol", label: "协议", width: "54px" },
     { key: "displayHost", label: "显示主机", width: "160px" },
     { key: "port", label: "端口", width: "54px" },
-    { key: "proxyNode", label: "代理节点", width: "94px" },
+    { key: "proxyNode", label: "代理服务器", width: "94px" },
     { key: "transitRelay", label: "中转", width: "80px" },
     { key: "visible", label: "可见", width: "48px", align: "center", render: () => <VisibleCheck /> },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
@@ -137,7 +124,7 @@ const columns = {
   inbounds: [
     { key: "name", label: "入站", primary: true, width: "176px", subKey: "summary" },
     { key: "protocol", label: "协议", width: "112px" },
-    { key: "proxyNode", label: "代理节点", width: "96px" },
+    { key: "proxyNode", label: "代理服务器", width: "96px" },
     { key: "port", label: "端口", width: "54px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "directAccess", label: "直连", width: "54px" },
@@ -177,7 +164,7 @@ const columns = {
     { key: "heartbeat", label: "心跳", width: "80px" },
   ],
   subscriptionEdges: [
-    { key: "name", label: "订阅入口", primary: true, width: "150px", subKey: "summary" },
+    { key: "name", label: "订阅服务器", primary: true, width: "150px", subKey: "summary" },
     { key: "host", label: "域名", width: "154px" },
     { key: "region", label: "区域", width: "90px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
@@ -190,7 +177,7 @@ const columns = {
     { key: "name", label: "策略", primary: true, width: "150px", subKey: "summary" },
     { key: "status", label: "状态", width: "68px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "format", label: "格式", width: "144px" },
-    { key: "planScope", label: "套餐范围", width: "130px" },
+    { key: "planScope", label: "权限组范围", width: "130px" },
     { key: "nodeSort", label: "排序", width: "80px" },
     { key: "hiddenOffline", label: "隐藏离线", width: "72px" },
     { key: "userAgentRule", label: "客户端", width: "86px" },
@@ -281,34 +268,34 @@ const resourceConfigs = {
     tableLabel: "用户列表",
     primaryAction: "新建用户",
     secondaryAction: "批量导入",
-    searchPlaceholder: "搜索用户名、套餐或协议...",
+    searchPlaceholder: "搜索用户名、权限组或协议...",
     searchKeys: ["id", "name", "plan", "protocols"],
     segments: [{ label: "All", value: "All" }, { label: "Active", value: "正常" }, { label: "处理", value: "已暂停" }],
     segmentKey: "status",
     filters: [
-      { key: "plan", label: "套餐", options: ["全部"] },
+      { key: "plan", label: "权限组", options: ["全部"] },
       { key: "status", label: "状态", options: ["全部", "正常", "已暂停"] },
       { key: "subscription", label: "订阅", options: ["全部", "启用", "禁用"] },
     ],
     detailRows: [
-      ["用户 ID", "id"], ["套餐", "plan"], ["到期时间", "expiresAt"], ["流量用量", "trafficUsed"],
+      ["用户 ID", "id"], ["权限组", "plan"], ["到期时间", "expiresAt"], ["流量用量", "trafficUsed"],
       ["协议权限", "protocols"], ["订阅状态", "subscription"], ["创建时间", "createdAt"],
     ],
     relationRows: [
-      ["可见节点", "nodes"], ["订阅入口", () => "-"], ["配置版本", "configVersion"],
+      ["可见节点", "nodes"], ["订阅服务", () => "-"], ["配置版本", "configVersion"],
     ],
     metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["Hysteria2", "hy2Password"]],
     preview: (row) => `user: ${row.id}\nplan: ${row.plan}\nprotocols: ${row.protocols}\nsubscription: ${row.subscription}\nnodes: ${row.nodes}\ntraffic: ${row.trafficUsed}`,
   },
   plans: {
-    title: "套餐",
+    title: "权限组",
     subtitle: "定义流量额度、有效期、协议权限和节点可见范围",
     data: plans,
     columns: columns.plans,
-    tableLabel: "套餐列表",
-    primaryAction: "新建套餐",
+    tableLabel: "权限组列表",
+    primaryAction: "新建权限组",
     secondaryAction: "编辑排序",
-    searchPlaceholder: "搜索套餐名称、协议或额度...",
+    searchPlaceholder: "搜索权限组名称、协议或额度...",
     searchKeys: ["id", "name", "trafficQuota", "protocols"],
     segments: [{ label: "All", value: "All" }, { label: "启用", value: "启用" }, { label: "停用", value: "停用" }],
     segmentKey: "status",
@@ -317,7 +304,7 @@ const resourceConfigs = {
       { key: "udp", label: "UDP", options: ["全部", "是", "否"] },
       { key: "status", label: "状态", options: ["全部", "启用", "停用"] },
     ],
-    detailRows: [["套餐 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["协议", "protocols"], ["允许 UDP", "udp"], ["HY2 速率", "hy2Speed"]],
+    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["协议", "protocols"], ["允许 UDP", "udp"], ["HY2 速率", "hy2Speed"]],
     relationRows: [["访问节点", "accessNodes"], ["用户数量", "userCount"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `plan: ${row.id}\ntraffic_quota: ${row.trafficQuota}\nduration: ${row.duration}\nprotocols: ${row.protocols}\naccess_nodes: ${row.accessNodes}\nusers: ${row.userCount}`,
@@ -331,7 +318,7 @@ const resourceConfigs = {
     primaryAction: "创建中转入口",
     secondaryAction: "新建访问节点",
     primaryKind: "relay",
-    searchPlaceholder: "搜索名称、显示主机或代理节点...",
+    searchPlaceholder: "搜索名称、显示主机或代理服务器...",
     searchKeys: ["id", "displayHost", "proxyNode", "transitRelay", "inbound"],
     segments: [{ label: "All", value: "All" }, { label: "Direct", value: "Direct" }, { label: "Relay", value: "Relay" }],
     segmentKey: "type",
@@ -341,19 +328,19 @@ const resourceConfigs = {
       { key: "visible", label: "可见性", options: ["全部", "true"] },
     ],
     detailRows: [["类型", "type"], ["协议 / 传输", "protocol"], ["显示主机", "displayHost"], ["端口", "port"], ["创建时间", "createdAt"], ["配置版本", "configVersion"]],
-    relationRows: [["入站", "inbound"], ["中转规则", "relayRule"], ["代理节点", "proxyNode"], ["中转服务器", "transitRelay"]],
-    metricRows: [["套餐可见性", (row) => row.plans.join("、")], ["应用时间", "appliedAt"], ["订阅可见", () => "是"]],
+    relationRows: [["入站", "inbound"], ["中转规则", "relayRule"], ["代理服务器", "proxyNode"], ["中转服务器", "transitRelay"]],
+    metricRows: [["权限组可见性", (row) => row.plans.join("、")], ["应用时间", "appliedAt"], ["订阅可见", () => "是"]],
     preview: (row) => `- name: ${row.id}\n  type: ${row.type.toLowerCase()}\n  listen: 0.0.0.0:${row.port}\n  transport: ${row.protocol.toLowerCase()}\n  inbound: ${row.inbound}\n  transit_relay: ${row.transitRelay}`,
   },
   "proxy-nodes": {
-    title: "代理节点",
-    subtitle: "管理真实落地代理服务器、协议运行时和 Node Agent 状态",
+    title: "代理服务器",
+    subtitle: "管理真实落地代理服务器、协议运行时和服务器 Agent 状态",
     data: proxyNodes,
     columns: columns.proxy,
-    tableLabel: "代理节点列表",
-    primaryAction: "新建代理节点",
+    tableLabel: "代理服务器列表",
+    primaryAction: "新建代理服务器",
     secondaryAction: "生成安装 Token",
-    searchPlaceholder: "搜索节点、IP 或区域...",
+    searchPlaceholder: "搜索服务器、IP 或区域...",
     searchKeys: ["id", "name", "host", "region"],
     segments: [{ label: "All", value: "All" }, { label: "在线", value: "在线" }, { label: "待发布", value: "待发布" }, { label: "离线", value: "离线" }],
     segmentKey: "status",
@@ -375,16 +362,16 @@ const resourceConfigs = {
     tableLabel: "协议入站列表",
     primaryAction: "新建协议入站",
     secondaryAction: "批量启用",
-    searchPlaceholder: "搜索入站、协议或代理节点...",
+    searchPlaceholder: "搜索入站、协议或代理服务器...",
     searchKeys: ["id", "name", "protocol", "proxyNode"],
     segments: [{ label: "All", value: "All" }, { label: "VLESS", value: "VLESS REALITY" }, { label: "HY2", value: "Hysteria2" }],
     segmentKey: "protocol",
     filters: [
-      { key: "proxyNode", label: "代理节点", options: ["全部"] },
+      { key: "proxyNode", label: "代理服务器", options: ["全部"] },
       { key: "status", label: "状态", options: ["全部", "运行中", "待发布"] },
       { key: "port", label: "端口", options: ["全部", "443"] },
     ],
-    detailRows: [["协议", "protocol"], ["代理节点", "proxyNode"], ["监听地址", "listen"], ["监听端口", "port"], ["状态", "status"], ["flow / 模式", "flow"]],
+    detailRows: [["协议", "protocol"], ["代理服务器", "proxyNode"], ["监听地址", "listen"], ["监听端口", "port"], ["状态", "status"], ["flow / 模式", "flow"]],
     relationRows: [["直连 Access", "directAccess"], ["中转 Access", "relayAccess"], ["用户数量", "users"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `inbound: ${row.id}\nprotocol: ${row.protocol}\nproxy_node: ${row.proxyNode}\nlisten: ${row.listen}:${row.port}\nflow: ${row.flow}\nauto_direct_access: true`,
@@ -434,12 +421,12 @@ const resourceConfigs = {
     preview: (row) => `[[endpoints]]\nlisten = \"0.0.0.0:${row.entryPort}\"\nremote = \"${row.targetHost}:${row.targetPort}\"\ntransport = \"${row.transport.toLowerCase()}\"\naccess_node = \"${row.accessNode}\"`,
   },
   "frontend-edges": {
-    title: "前端入口",
-    subtitle: "管理面板前端入口、工具站伪装、证书和 Backend API 对接状态",
+    title: "前端服务器",
+    subtitle: "管理面板前端服务器、工具站伪装、证书和 Backend API 对接状态",
     data: frontendEdges,
     columns: columns.edges,
-    tableLabel: "前端入口列表",
-    primaryAction: "注册前端入口",
+    tableLabel: "前端服务器列表",
+    primaryAction: "注册前端服务器",
     secondaryAction: "签发证书",
     searchPlaceholder: "搜索入口、域名或伪装类型...",
     searchKeys: ["id", "name", "host", "camouflage"],
@@ -456,14 +443,14 @@ const resourceConfigs = {
     preview: (row) => `frontend_edge: ${row.id}\nhost: ${row.host}\ncamouflage: ${row.camouflage}\nbackend: ${row.backend}\ncertificate: ${row.certificate}`,
   },
   "subscription-edges": {
-    title: "订阅入口",
+    title: "订阅服务器",
     subtitle: "管理公开订阅服务器、缓存、限速和用户订阅访问入口",
     data: subscriptionEdges,
     columns: columns.subscriptionEdges,
-    tableLabel: "订阅入口列表",
-    primaryAction: "注册订阅入口",
+    tableLabel: "订阅服务器列表",
+    primaryAction: "注册订阅服务器",
     secondaryAction: "刷新缓存",
-    searchPlaceholder: "搜索订阅入口、域名或区域...",
+    searchPlaceholder: "搜索订阅服务器、域名或区域...",
     searchKeys: ["id", "name", "host", "region"],
     segments: [{ label: "All", value: "All" }, { label: "在线", value: "在线" }, { label: "降级", value: "降级" }],
     segmentKey: "status",
@@ -479,13 +466,13 @@ const resourceConfigs = {
   },
   "subscription-policies": {
     title: "订阅策略",
-    subtitle: "管理订阅格式、节点排序、套餐可见性和客户端兼容策略",
+    subtitle: "管理订阅格式、节点排序、权限组可见性和客户端兼容策略",
     data: subscriptionPolicies,
     columns: columns.policies,
     tableLabel: "订阅策略列表",
     primaryAction: "新建订阅策略",
     secondaryAction: "调整优先级",
-    searchPlaceholder: "搜索策略、格式或套餐范围...",
+    searchPlaceholder: "搜索策略、格式或权限组范围...",
     searchKeys: ["id", "name", "format", "planScope"],
     segments: [{ label: "All", value: "All" }, { label: "启用", value: "启用" }],
     segmentKey: "status",
@@ -494,7 +481,7 @@ const resourceConfigs = {
       { key: "nodeSort", label: "排序", options: ["全部", "区域优先", "质量评分"] },
       { key: "hiddenOffline", label: "离线", options: ["全部", "是"] },
     ],
-    detailRows: [["格式", "format"], ["套餐范围", "planScope"], ["节点排序", "nodeSort"], ["隐藏离线", "hiddenOffline"], ["客户端规则", "userAgentRule"], ["状态", "status"]],
+    detailRows: [["格式", "format"], ["权限组范围", "planScope"], ["节点排序", "nodeSort"], ["隐藏离线", "hiddenOffline"], ["客户端规则", "userAgentRule"], ["状态", "status"]],
     relationRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     metricRows: [["策略 ID", "id"], ["配置状态", "status"]],
     preview: (row) => `subscription_policy: ${row.id}\nformats: ${row.format}\nplans: ${row.planScope}\nnode_sort: ${row.nodeSort}\nhide_offline: ${row.hiddenOffline}`,
@@ -522,7 +509,7 @@ const resourceConfigs = {
     preview: (row) => `config_release: ${row.version}\nstatus: ${row.status}\nchanged_resources: ${row.changedResources}\nagents: ${row.agents}\nfailed_reason: ${row.failedReason}`,
   },
   agents: {
-    title: "Agent",
+    title: "服务器 Agent",
     subtitle: "查看所有服务器 Agent 的注册、心跳、版本、能力和配置应用状态",
     data: agents,
     columns: columns.agents,
@@ -705,10 +692,10 @@ function buildSummaryCards(resourceData = {}) {
   const pendingAccessNodes = (resourceData["access-nodes"] || []).filter((node) => node.status === "待发布").length;
   return [
     { label: "用户", value: String((resourceData.users || []).length), meta: "当前数据库用户", tone: "success" },
-    { label: "访问节点", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待发布`, tone: pendingAccessNodes ? "warning" : "success" },
-    { label: "代理节点", value: String((resourceData["proxy-nodes"] || []).length), meta: "由 Agent 接管配置", tone: "success" },
-    { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "同步转发规则", tone: "success" },
-    { label: "Agent", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success" },
+    { label: "访问节点", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待应用`, tone: pendingAccessNodes ? "warning" : "success" },
+    { label: "代理服务器", value: String((resourceData["proxy-nodes"] || []).length), meta: "由服务器管理接管", tone: "success" },
+    { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "管理转发链路", tone: "success" },
+    { label: "服务器 Agent", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success" },
     { label: "今日流量", value: "0 GB", meta: "统计模块待接入", tone: "warning" },
   ];
 }
@@ -947,7 +934,7 @@ function adaptPlan(plan, context) {
     resourceId: plan.id,
     raw: plan,
     summary: `${formatBytes(plan.trafficLimitBytes)} · ${plan.durationDays || "不限"} 天`,
-    group: plan.enabled === false ? "停用套餐" : "启用套餐",
+    group: plan.enabled === false ? "停用权限组" : "启用权限组",
     name: plan.name || plan.id,
     status: enabledLabel(plan, "启用", "停用"),
     trafficQuota: formatBytes(plan.trafficLimitBytes),
@@ -972,14 +959,14 @@ function adaptUser(user, context) {
     id: user.name || user.email || user.id,
     resourceId: user.id,
     raw: user,
-    summary: `${plan?.name || "无套餐"} · 到期 ${isoText(user.expiresAt, "不限").slice(0, 10)}`,
+    summary: `${plan?.name || "无权限组"} · 到期 ${isoText(user.expiresAt, "不限").slice(0, 10)}`,
     group: user.enabled === false ? "需处理" : "活跃用户",
     name: user.name || user.email || user.id,
     status: user.enabled === false ? "已暂停" : "正常",
     plan: plan?.name || "未绑定",
     expiresAt: isoText(user.expiresAt, "不限").slice(0, 10),
     trafficUsed: `${formatBytes(user.usedTrafficBytes || 0)} / ${formatBytes(total)}`,
-    protocols: protocolListLabel(protocols, "继承套餐"),
+    protocols: protocolListLabel(protocols, "继承权限组"),
     subscription: user.enabled === false ? "禁用" : "启用",
     lastSeen: user.lastProxyUseAt ? isoText(user.lastProxyUseAt) : "未使用",
     configVersion: `v${context.summary?.version || 1}`,
@@ -1087,7 +1074,7 @@ function adaptAccessNode(accessNode, context) {
     configVersion: `v${context.summary?.version || 1}`,
     inbound: inbound?.name || accessNode.inboundId || "-",
     relayRule: rule?.name || accessNode.relayRuleId || "-",
-    plans: ["按套餐权限"],
+    plans: ["按权限组"],
     appliedAt: isoText(accessNode.updatedAt || accessNode.createdAt),
     createdAt: isoText(accessNode.createdAt),
   };
@@ -1167,11 +1154,11 @@ const resourceFormConfigs = {
     fields: [
       { name: "name", label: "用户名", type: "text", defaultValue: "" },
       { name: "email", label: "邮箱", type: "text", defaultValue: "" },
-      { name: "planId", label: "套餐", type: "select", options: (data) => optionRows(data.plans), defaultValue: (data) => selectDefault(data.plans) },
+      { name: "planId", label: "权限组", type: "select", options: (data) => optionRows(data.plans), defaultValue: (data) => selectDefault(data.plans) },
       { name: "expiresAt", label: "到期时间", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量上限 GiB", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用用户", type: "checkbox", defaultValue: true },
-      { name: "protocols", label: "协议权限", type: "text", defaultValue: "vless-reality,hysteria2", hint: "逗号分隔，可留空继承套餐" },
+      { name: "protocols", label: "协议权限", type: "text", defaultValue: "vless-reality,hysteria2", hint: "逗号分隔，可留空继承权限组" },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -1193,15 +1180,15 @@ const resourceFormConfigs = {
     }),
   },
   plans: {
-    label: "套餐",
+    label: "权限组",
     fields: [
-      { name: "name", label: "套餐名称", type: "text", defaultValue: "" },
+      { name: "name", label: "权限组名称", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量额度 GiB", type: "number", defaultValue: 500 },
       { name: "durationDays", label: "有效期天数", type: "number", defaultValue: 90 },
       { name: "allowedProtocols", label: "允许协议", type: "text", defaultValue: "vless-reality,hysteria2" },
       { name: "allowUdp", label: "允许 UDP", type: "checkbox", defaultValue: true },
       { name: "speedLimitMbps", label: "限速 Mbps", type: "number", defaultValue: "" },
-      { name: "enabled", label: "启用套餐", type: "checkbox", defaultValue: true },
+      { name: "enabled", label: "启用权限组", type: "checkbox", defaultValue: true },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -1223,7 +1210,7 @@ const resourceFormConfigs = {
     }),
   },
   "proxy-nodes": {
-    label: "代理节点",
+    label: "代理服务器",
     fields: [
       { name: "name", label: "节点名称", type: "text", defaultValue: "" },
       { name: "publicHost", label: "公网主机", type: "text", defaultValue: "" },
@@ -1262,7 +1249,7 @@ const resourceFormConfigs = {
     label: "协议入站",
     fields: [
       { name: "name", label: "入站名称", type: "text", defaultValue: "" },
-      { name: "proxyNodeId", label: "代理节点", type: "select", options: (data) => optionRows(data["proxy-nodes"]), defaultValue: (data) => selectDefault(data["proxy-nodes"]) },
+      { name: "proxyNodeId", label: "代理服务器", type: "select", options: (data) => optionRows(data["proxy-nodes"]), defaultValue: (data) => selectDefault(data["proxy-nodes"]) },
       { name: "protocol", label: "协议", type: "select", defaultValue: "vless-reality", options: [{ label: "VLESS REALITY", value: "vless-reality" }, { label: "Hysteria2", value: "hysteria2" }] },
       { name: "port", label: "端口", type: "number", defaultValue: 443 },
       { name: "listen", label: "监听地址", type: "text", defaultValue: "0.0.0.0" },
@@ -1399,14 +1386,14 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       id: values.name || rowId,
       resourceId: rawId,
       raw,
-      summary: `${plan?.name || "无套餐"} · 到期 ${values.expiresAt || "不限"}`,
+      summary: `${plan?.name || "无权限组"} · 到期 ${values.expiresAt || "不限"}`,
       group: values.enabled ? "活跃用户" : "需处理",
       name: values.name,
       status: values.enabled ? "正常" : "已暂停",
       plan: plan?.name || "未绑定",
       expiresAt: values.expiresAt || "不限",
       trafficUsed: `0 B / ${formatBytes(raw.trafficLimitBytes)}`,
-      protocols: protocolListLabel(splitList(values.protocols), "继承套餐"),
+      protocols: protocolListLabel(splitList(values.protocols), "继承权限组"),
       subscription: values.enabled ? "启用" : "禁用",
       lastSeen: "未使用",
       configVersion: version,
@@ -1425,7 +1412,7 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       resourceId: rawId,
       raw,
       summary: `${formatBytes(raw.trafficLimitBytes)} · ${values.durationDays || "不限"} 天`,
-      group: values.enabled ? "启用套餐" : "停用套餐",
+      group: values.enabled ? "启用权限组" : "停用权限组",
       name: values.name,
       status: values.enabled ? "启用" : "停用",
       trafficQuota: formatBytes(raw.trafficLimitBytes),
@@ -1532,7 +1519,7 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       configVersion: version,
       inbound: inbound?.name || values.inboundId,
       relayRule: "-",
-      plans: ["按套餐权限"],
+      plans: ["按权限组"],
       createdAt: isoText(raw.createdAt),
       appliedAt: isoText(raw.updatedAt),
     };
@@ -1598,7 +1585,7 @@ function makeLocalRelayBundle(values, resourceData) {
     configVersion: "v-local",
     inbound: inbound?.name || values.inboundId,
     relayRule: ruleId,
-    plans: ["按套餐权限"],
+    plans: ["按权限组"],
     createdAt: isoText(now),
     appliedAt: "等待发布",
   };
@@ -1754,10 +1741,10 @@ function MobileNav({ activeSection, onSelect }) {
   );
 }
 
-function TopBar({ onPublish, apiStatus, adminUser, onLogout }) {
+function TopBar({ onRefresh, apiStatus, adminUser, onLogout }) {
   const tone = apiStatus?.mode === "connected" ? "success" : apiStatus?.mode === "error" ? "danger" : "warning";
   const label = apiStatus?.message || "等待连接";
-  const configVersion = apiStatus?.summary?.version ? `Config v${apiStatus.summary.version}` : "Config v1";
+  const configVersion = apiStatus?.summary?.version ? `数据版本 v${apiStatus.summary.version}` : "数据版本 v1";
 
   return (
     <header className="topbar">
@@ -1766,11 +1753,11 @@ function TopBar({ onPublish, apiStatus, adminUser, onLogout }) {
         <span className="topbar__divider" />
         <span className="topbar__item"><IconFileCode size={17} stroke={1.8} />{configVersion}</span>
         <span className="topbar__divider" />
-        <span className="topbar__item"><StatusDot tone="success" />0 个待处理变更</span>
+        <span className="topbar__item"><StatusDot tone="success" />监控正常</span>
       </div>
       <div className="topbar__actions">
-        <button className="button button--secondary" type="button">0 待发布</button>
-        <button className="button button--primary" type="button" onClick={onPublish}>发布配置</button>
+        <button className="button button--secondary" type="button">{apiStatus?.mode === "demo" ? "演示预览" : "生产模式"}</button>
+        <button className="button button--primary" type="button" onClick={onRefresh}><IconRefresh size={16} stroke={1.9} />刷新数据</button>
         <button className="admin-menu" type="button" onClick={onLogout}>
           <IconUser size={18} stroke={1.8} />
           {adminUser?.username || "Admin"}
@@ -2139,24 +2126,142 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
   );
 }
 
+function WorkspaceTabs({ items, activeId, onChange }) {
+  return (
+    <div className="workspace-tabs" role="tablist">
+      {items.map((item) => {
+        const TabIcon = item.icon;
+        return (
+          <button
+            className={activeId === item.id ? "workspace-tab workspace-tab--active" : "workspace-tab"}
+            key={item.id}
+            type="button"
+            onClick={() => onChange(item.id)}
+          >
+            <TabIcon size={17} stroke={1.9} />
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload }) {
+  const [activeTab, setActiveTab] = useState(initialTab || tabs[0]?.id);
+  const tab = tabs.find((item) => item.id === activeTab) || tabs[0];
+  const sectionId = tab?.sectionId;
+  const config = resourceConfigs[sectionId];
+
+  if (!config) return null;
+
+  return (
+    <div className="workspace-shell">
+      <section className="main-pane main-pane--wide">
+        <div className="page-header page-header--compact">
+          <div>
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
+          </div>
+        </div>
+        <WorkspaceTabs items={tabs} activeId={tab.id} onChange={setActiveTab} />
+      </section>
+      <ResourceRoute
+        key={sectionId}
+        sectionId={sectionId}
+        config={config}
+        rows={resourceData[sectionId]}
+        showToast={showToast}
+        setDrawerOpen={setDrawerOpen}
+        onCreate={onCreate}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onReload={onReload}
+      />
+    </div>
+  );
+}
+
+function AccessWorkspacePage(props) {
+  return (
+    <ResourceWorkspacePage
+      {...props}
+      title="访问节点"
+      subtitle="统一管理用户可见节点、协议入站、中转链路、节点排序和权限组可见性"
+      initialTab="access"
+      tabs={[
+        { id: "access", label: "访问入口", icon: IconNetwork, sectionId: "access-nodes" },
+        { id: "inbounds", label: "协议入站", icon: IconRoute, sectionId: "inbounds" },
+        { id: "relay-rules", label: "中转链路", icon: IconGitBranch, sectionId: "relay-rules" },
+      ]}
+    />
+  );
+}
+
+function ServerManagementPage(props) {
+  return (
+    <ResourceWorkspacePage
+      {...props}
+      title="服务器管理"
+      subtitle="按角色管理前端服务器、代理服务器、订阅服务器、中转服务器和 Agent 状态"
+      initialTab="agents"
+      tabs={[
+        { id: "agents", label: "全部 Agent", icon: IconCloudComputing, sectionId: "agents" },
+        { id: "frontend", label: "前端服务器", icon: IconShieldLock, sectionId: "frontend-edges" },
+        { id: "proxy", label: "代理服务器", icon: IconNetwork, sectionId: "proxy-nodes" },
+        { id: "subscription", label: "订阅服务器", icon: IconRoute, sectionId: "subscription-edges" },
+        { id: "relay", label: "中转服务器", icon: IconGitBranch, sectionId: "transit-relays" },
+        { id: "health", label: "健康检查", icon: IconActivityHeartbeat, sectionId: "health" },
+      ]}
+    />
+  );
+}
+
+function MonitorLogPage(props) {
+  return (
+    <ResourceWorkspacePage
+      {...props}
+      title="监控日志"
+      subtitle="集中查看告警、流量统计和审计日志，后续可接入通知与报表"
+      initialTab="alerts"
+      tabs={[
+        { id: "alerts", label: "告警事件", icon: IconBellRinging, sectionId: "alerts" },
+        { id: "traffic", label: "流量统计", icon: IconSelector, sectionId: "traffic" },
+        { id: "audit", label: "审计日志", icon: IconFileCode, sectionId: "audit-logs" },
+      ]}
+    />
+  );
+}
+
 function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) {
   const summaryCards = buildSummaryCards(resourceData);
-  const tasks = buildOverviewTasks(resourceData);
-  const events = buildOverviewEvents(resourceData);
-  const healthTiles = buildOverviewHealthTiles(resourceData);
   const configVersion = apiStatus?.summary?.version ? `v${apiStatus.summary.version}` : "v1";
   const updatedAt = hasManagedRows(resourceData) && apiStatus?.summary?.configUpdatedAt ? isoText(apiStatus.summary.configUpdatedAt) : "暂无";
+  const serverCounts = [
+    { label: "前端", value: (resourceData["frontend-edges"] || []).length },
+    { label: "代理", value: (resourceData["proxy-nodes"] || []).length },
+    { label: "订阅", value: (resourceData["subscription-edges"] || []).length },
+    { label: "中转", value: (resourceData["transit-relays"] || []).length },
+  ];
+  const accessCounts = [
+    { label: "访问入口", value: (resourceData["access-nodes"] || []).length },
+    { label: "协议入站", value: (resourceData.inbounds || []).length },
+    { label: "中转链路", value: (resourceData["relay-rules"] || []).length },
+  ];
+  const alertCount = (resourceData.alerts || []).length;
+  const auditCount = (resourceData["audit-logs"] || []).length;
+  const trafficCount = (resourceData.traffic || []).length;
   return (
     <div className="overview-shell">
       <section className="main-pane main-pane--wide">
         <div className="page-header">
           <div>
             <h1>总览</h1>
-            <p>查看控制面、节点、中转、订阅入口、告警和配置发布状态</p>
+            <p>查看控制面、服务器角色、访问链路、用户权限和监控状态</p>
           </div>
           <div className="page-header__actions">
-            <button className="button button--secondary button--blue" type="button" onClick={() => setActiveSection("agents")}><IconCloudComputing size={17} stroke={1.9} />查看 Agent</button>
-            <button className="button button--primary" type="button" onClick={() => showToast("配置发布任务已创建")}><IconFileCode size={17} stroke={1.9} />发布配置</button>
+            <button className="button button--secondary button--blue" type="button" onClick={() => setActiveSection("servers")}><IconCloudComputing size={17} stroke={1.9} />服务器管理</button>
+            <button className="button button--primary" type="button" onClick={() => setActiveSection("access-nodes")}><IconNetwork size={17} stroke={1.9} />访问节点</button>
           </div>
         </div>
 
@@ -2164,7 +2269,7 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
           <div><StatusDot tone={apiStatus?.mode === "connected" ? "success" : "warning"} /><span>Backend Core</span><strong>{apiStatus?.mode === "connected" ? "Online" : "Connecting"}</strong></div>
           <div><StatusDot /><span>配置版本</span><strong>{configVersion}</strong></div>
           <div><StatusDot /><span>最近更新</span><strong>{updatedAt}</strong></div>
-          <div><StatusDot tone="warning" /><span>待处理</span><strong>0 项变更</strong></div>
+          <div><StatusDot tone={alertCount ? "warning" : "success"} /><span>监控事件</span><strong>{alertCount} 条告警</strong></div>
         </div>
 
         <div className="metric-grid">
@@ -2177,61 +2282,75 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
           ))}
         </div>
 
-        <div className="dashboard-grid">
+        <div className="overview-insight-grid">
           <section className="panel">
             <div className="panel__header">
-              <h2>待处理事项</h2>
-              <button className="subtle-link" type="button" onClick={() => setActiveSection("alerts")}>查看告警 <IconExternalLink size={14} stroke={1.9} /></button>
+              <h2>服务器角色分布</h2>
+              <button className="subtle-link" type="button" onClick={() => setActiveSection("servers")}>服务器管理 <IconExternalLink size={14} stroke={1.9} /></button>
             </div>
-            <div className="task-list">
-              {tasks.length ? tasks.map((task) => (
-                <button type="button" key={task.title}>
-                  <StatusDot tone={task.tone} />
-                  <strong>{task.title}</strong>
-                  <span>{task.meta}</span>
+            <div className="insight-bars">
+              {serverCounts.map((item) => (
+                <button type="button" key={item.label} onClick={() => setActiveSection("servers")}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                  <i style={{ width: `${Math.max(6, Math.min(100, item.value * 18))}%` }} />
                 </button>
-              )) : (
-                <EmptyPanel compact title="暂无待处理事项" description="创建资源或 Agent 上报异常后，这里会显示待处理内容。" />
-              )}
+              ))}
             </div>
           </section>
 
           <section className="panel">
             <div className="panel__header">
-              <h2>最近配置应用</h2>
-              <button className="subtle-link" type="button" onClick={() => setActiveSection("config")}>发布记录 <IconExternalLink size={14} stroke={1.9} /></button>
+              <h2>访问链路</h2>
+              <button className="subtle-link" type="button" onClick={() => setActiveSection("access-nodes")}>访问节点 <IconExternalLink size={14} stroke={1.9} /></button>
             </div>
-            <div className="event-list">
-              {events.length ? events.map((event) => (
-                <div key={`${event.version}-${event.meta}`}>
-                  <span>{event.version}</span>
-                  <strong>{event.title}</strong>
-                  <small>{event.meta}</small>
-                </div>
-              )) : (
-                <EmptyPanel compact title="暂无配置应用记录" description="发布配置后，这里会显示最近应用结果。" />
-              )}
+            <div className="insight-stack">
+              {accessCounts.map((item) => (
+                <button type="button" key={item.label} onClick={() => setActiveSection("access-nodes")}>
+                  <StatusDot tone={item.value ? "success" : "warning"} />
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel__header">
+              <h2>用户与权限</h2>
+              <button className="subtle-link" type="button" onClick={() => setActiveSection("plans")}>权限组 <IconExternalLink size={14} stroke={1.9} /></button>
+            </div>
+            <div className="insight-kpis">
+              <button type="button" onClick={() => setActiveSection("users")}><span>用户</span><strong>{(resourceData.users || []).length}</strong></button>
+              <button type="button" onClick={() => setActiveSection("plans")}><span>权限组</span><strong>{(resourceData.plans || []).length}</strong></button>
+              <button type="button" onClick={() => setActiveSection("access-nodes")}><span>可见入口</span><strong>{(resourceData["access-nodes"] || []).length}</strong></button>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel__header">
+              <h2>监控摘要</h2>
+              <button className="subtle-link" type="button" onClick={() => setActiveSection("monitor")}>监控日志 <IconExternalLink size={14} stroke={1.9} /></button>
+            </div>
+            <div className="insight-stack">
+              <button type="button" onClick={() => setActiveSection("monitor")}>
+                <StatusDot tone={alertCount ? "warning" : "success"} />
+                <span>告警事件</span>
+                <strong>{alertCount}</strong>
+              </button>
+              <button type="button" onClick={() => setActiveSection("monitor")}>
+                <StatusDot />
+                <span>流量记录</span>
+                <strong>{trafficCount}</strong>
+              </button>
+              <button type="button" onClick={() => setActiveSection("monitor")}>
+                <StatusDot />
+                <span>审计日志</span>
+                <strong>{auditCount}</strong>
+              </button>
             </div>
           </section>
         </div>
-
-        <section className="panel panel--full">
-          <div className="panel__header">
-            <h2>资源健康</h2>
-            <button className="subtle-link" type="button" onClick={() => setActiveSection("health")}>健康检查 <IconExternalLink size={14} stroke={1.9} /></button>
-          </div>
-          <div className="resource-health-grid">
-            {healthTiles.length ? healthTiles.map((tile) => (
-              <button className="health-tile" type="button" key={tile.name}>
-                <StatusDot tone={tile.tone} />
-                <strong>{tile.name}</strong>
-                <span>{tile.status} · {tile.meta}</span>
-              </button>
-            )) : (
-              <EmptyPanel compact title="暂无健康数据" description="Agent 接入并完成心跳后，这里会显示资源健康状态。" />
-            )}
-          </div>
-        </section>
       </section>
     </div>
   );
@@ -2250,7 +2369,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
         <div className="page-header">
           <div>
             <h1>系统设置</h1>
-            <p>管理 Backend Core 基础信息、发布策略和 Agent 兼容版本</p>
+            <p>管理 Backend Core、管理员安全、订阅兼容、证书、备份和升级策略</p>
           </div>
           <div className="page-header__actions">
             <button className="button button--secondary button--blue" type="button" onClick={() => showToast("设置变更已重置")}><IconRefresh size={17} stroke={1.9} />重置</button>
@@ -2284,15 +2403,15 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
           </section>
 
           <section className="setting-panel">
-            <h2>配置发布</h2>
-            <label><span>发布策略</span><select defaultValue="manual"><option value="manual">手动发布</option><option value="auto">保存后自动发布</option></select></label>
-            <label><span>离线 Agent 策略</span><select defaultValue="keep-last-good"><option value="keep-last-good">保留 last known good</option><option value="block">阻止发布</option></select></label>
-            <label><span>配置回滚保留</span><select defaultValue="30"><option>30 versions</option><option>60 versions</option></select></label>
+            <h2>订阅默认策略</h2>
+            <label><span>订阅格式</span><select defaultValue="clash-singbox-uri"><option value="clash-singbox-uri">Clash / Sing-box / URI</option><option value="singbox">Sing-box</option><option value="clash">Clash</option></select></label>
+            <label><span>客户端兼容</span><select defaultValue="auto"><option value="auto">自动识别客户端</option><option value="strict">严格模式</option></select></label>
+            <label><span>隐藏不可用节点</span><select defaultValue="enabled"><option value="enabled">启用</option><option value="disabled">关闭</option></select></label>
           </section>
 
           <section className="setting-panel">
-            <h2>Agent 兼容</h2>
-            <label><span>最低版本</span><input defaultValue="0.3.9" /></label>
+            <h2>服务器 Agent</h2>
+            <label><span>最低版本</span><input defaultValue="0.4.0" /></label>
             <label><span>心跳超时</span><select defaultValue="180s"><option>180s</option><option>300s</option></select></label>
             <label><span>运行时校验</span><select defaultValue="strict"><option value="strict">strict</option><option value="warn">warn only</option></select></label>
           </section>
@@ -2305,10 +2424,24 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
           </section>
 
           <section className="setting-panel">
-            <h2>备份</h2>
+            <h2>域名证书</h2>
+            <label><span>DNS Provider</span><select defaultValue="cloudflare"><option value="cloudflare">Cloudflare</option><option value="manual">手动管理</option></select></label>
+            <label><span>证书续期</span><select defaultValue="auto"><option value="auto">自动续期</option><option value="manual">手动续期</option></select></label>
+            <label><span>提前提醒</span><select defaultValue="14d"><option>14d</option><option>30d</option></select></label>
+          </section>
+
+          <section className="setting-panel">
+            <h2>备份恢复</h2>
             <label><span>备份路径</span><input defaultValue="/var/lib/kato/backups" /></label>
             <label><span>自动备份</span><select defaultValue="03:00"><option>03:00</option><option>04:00</option></select></label>
             <label><span>保留周期</span><select defaultValue="30d"><option>30d</option><option>90d</option></select></label>
+          </section>
+
+          <section className="setting-panel">
+            <h2>版本升级</h2>
+            <label><span>默认升级源</span><input defaultValue="https://github.com/anizi559/kato.git" /></label>
+            <label><span>默认策略</span><select defaultValue="latest"><option value="latest">升级到最新版本</option><option value="current">保留当前版本</option></select></label>
+            <label><span>升级前备份</span><select defaultValue="enabled"><option value="enabled">启用</option><option value="disabled">关闭</option></select></label>
           </section>
         </div>
       </section>
@@ -2402,7 +2535,7 @@ function validateResourceForm(sectionId, values, resourceData, item) {
     return "中转服务器需要公网主机或公网 IP";
   }
   if (sectionId === "inbounds" && !(resourceData["proxy-nodes"] || []).length) {
-    return "请先创建代理节点";
+    return "请先创建代理服务器";
   }
   if (sectionId === "access-nodes" && !(resourceData.inbounds || []).length) {
     return "请先创建协议入站";
@@ -2703,6 +2836,48 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
     return <SettingsPage showToast={showToast} apiStatus={apiStatus} onSaveApiSettings={onSaveApiSettings} />;
   }
 
+  if (activeSection === "access-nodes") {
+    return (
+      <AccessWorkspacePage
+        resourceData={resourceData}
+        showToast={showToast}
+        setDrawerOpen={setDrawerOpen}
+        onCreate={onCreate}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onReload={onReload}
+      />
+    );
+  }
+
+  if (activeSection === "servers") {
+    return (
+      <ServerManagementPage
+        resourceData={resourceData}
+        showToast={showToast}
+        setDrawerOpen={setDrawerOpen}
+        onCreate={onCreate}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onReload={onReload}
+      />
+    );
+  }
+
+  if (activeSection === "monitor") {
+    return (
+      <MonitorLogPage
+        resourceData={resourceData}
+        showToast={showToast}
+        setDrawerOpen={setDrawerOpen}
+        onCreate={onCreate}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onReload={onReload}
+      />
+    );
+  }
+
   const config = resourceConfigs[activeSection];
   if (!config) {
     return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} resourceData={resourceData} apiStatus={apiStatus} />;
@@ -2943,7 +3118,7 @@ export function App() {
     <main className="app-shell">
       <Sidebar activeSection={activeSection} onSelect={setActiveSection} />
       <section className="workspace">
-        <TopBar apiStatus={apiStatus} adminUser={adminUser} onLogout={handleLogout} onPublish={() => showToast("配置发布任务已创建")} />
+        <TopBar apiStatus={apiStatus} adminUser={adminUser} onLogout={handleLogout} onRefresh={loadBackendData} />
         <MobileNav activeSection={activeSection} onSelect={setActiveSection} />
         <AppContent
           activeSection={activeSection}

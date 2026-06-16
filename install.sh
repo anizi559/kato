@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.3.3"
+APP_VERSION="0.3.4"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -1003,6 +1003,47 @@ install_nginx() {
   systemctl enable --now nginx.service
 }
 
+memory_total_mb() {
+  awk '/MemTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null || printf '0'
+}
+
+swap_total_mb() {
+  awk '/SwapTotal:/ { printf "%d", $2 / 1024 }' /proc/meminfo 2>/dev/null || printf '0'
+}
+
+ensure_frontend_build_memory() {
+  local mem_mb swap_mb swap_path="/swapfile-kato" swap_size_mb=2048
+  mem_mb="$(memory_total_mb)"
+  swap_mb="$(swap_total_mb)"
+
+  if [[ "$mem_mb" -ge 1800 || "$swap_mb" -ge 1024 ]]; then
+    log "内存检查通过：RAM ${mem_mb}MB，Swap ${swap_mb}MB"
+    return
+  fi
+
+  log "检测到前端服务器内存较小：RAM ${mem_mb}MB，Swap ${swap_mb}MB"
+  log "正在创建 ${swap_size_mb}MB swap，避免前端构建时系统卡死或 SSH 断开"
+
+  if [[ ! -f "$swap_path" ]]; then
+    if command_exists fallocate; then
+      fallocate -l "${swap_size_mb}M" "$swap_path" || dd if=/dev/zero of="$swap_path" bs=1M count="$swap_size_mb" status=progress
+    else
+      dd if=/dev/zero of="$swap_path" bs=1M count="$swap_size_mb" status=progress
+    fi
+    chmod 0600 "$swap_path"
+    mkswap "$swap_path" >/dev/null
+  fi
+
+  if ! swapon --show=NAME | grep -qx "$swap_path"; then
+    swapon "$swap_path"
+  fi
+  if ! grep -q "^${swap_path} " /etc/fstab; then
+    printf '%s none swap sw 0 0\n' "$swap_path" >>/etc/fstab
+  fi
+  sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
+  log "swap 已启用：$(swap_total_mb)MB"
+}
+
 normalize_panel_admin_path() {
   local value="$1"
   value="${value:-/admin-$(openssl rand -hex 4)}"
@@ -1094,6 +1135,8 @@ install_admin_ui() {
   panel_admin_path="$normalized_admin_path"
   admin_base="${panel_admin_path}/"
   backend_upstream="${backend_url%/}"
+
+  ensure_frontend_build_memory
 
   log "正在安装前端 npm 依赖"
   (cd "$app_dir" && "$install_root/node/bin/npm" ci)

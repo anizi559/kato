@@ -678,6 +678,12 @@ const apiCollections = {
 
 const backendCollections = ["plans", "users", "proxy-nodes", "node-inbounds", "transit-relays", "access-nodes", "relay-rules"];
 const writableSections = new Set(Object.keys(apiCollections));
+const bootstrapRoleBySection = {
+  "proxy-nodes": "proxy-node",
+  "transit-relays": "transit-relay",
+  "frontend-edges": "frontend-edge",
+  "subscription-edges": "subscription-edge",
+};
 const gib = 1024 ** 3;
 
 function createInitialResourceData() {
@@ -2043,7 +2049,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
   );
 }
 
-function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload }) {
+function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("All");
   const [filterValues, setFilterValues] = useState(() => {
@@ -2116,6 +2122,10 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
           onCreate(sectionId);
           return;
         }
+        if (bootstrapRoleBySection[sectionId]) {
+          onGenerateBootstrap(sectionId, selectedItem);
+          return;
+        }
         showToast(`${config.secondaryAction}入口已准备`);
       }}
       onRefresh={onReload}
@@ -2147,7 +2157,7 @@ function WorkspaceTabs({ items, activeId, onChange }) {
   );
 }
 
-function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload }) {
+function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap }) {
   const [activeTab, setActiveTab] = useState(initialTab || tabs[0]?.id);
   const tab = tabs.find((item) => item.id === activeTab) || tabs[0];
   const sectionId = tab?.sectionId;
@@ -2177,6 +2187,7 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
         onEdit={onEdit}
         onDelete={onDelete}
         onReload={onReload}
+        onGenerateBootstrap={onGenerateBootstrap}
       />
     </div>
   );
@@ -2584,6 +2595,75 @@ function isBlank(value) {
   return value === undefined || value === null || String(value).trim() === "";
 }
 
+function shellQuote(value) {
+  const text = String(value ?? "");
+  return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
+function roleInstallCommand({ role, backendUrl, token, name }) {
+  const parts = [
+    "sudo ./install.sh",
+    "--role",
+    role,
+    "--backend-url",
+    shellQuote(backendUrl || "http://后端IP:8080"),
+    "--bootstrap-token",
+    shellQuote(token),
+  ];
+  if (name) {
+    parts.push("--agent-name", shellQuote(name));
+  }
+  return parts.join(" ");
+}
+
+function BootstrapTokenDialog({ result, onClose, showToast }) {
+  if (!result) return null;
+
+  async function copyText(text, label) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`${label}已复制`);
+    } catch {
+      window.prompt(`请复制${label}`, text);
+    }
+  }
+
+  return (
+    <div className="drawer-scrim" role="presentation" onMouseDown={onClose}>
+      <aside className="relay-drawer token-dialog" role="dialog" aria-modal="true" aria-labelledby="bootstrap-token-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="relay-drawer__header">
+          <div>
+            <p className="eyebrow">一次性注册令牌</p>
+            <h2 id="bootstrap-token-title">Bootstrap Token 已生成</h2>
+          </div>
+          <IconButton label="关闭" onClick={onClose}><IconX size={21} stroke={1.8} /></IconButton>
+        </div>
+        <div className="token-dialog__body">
+          <p className="drawer-note">新服务器首次安装时需要粘贴这个 token。它只能使用一次，过期时间为 {result.expiresAt}。</p>
+          <label>
+            <span>Bootstrap Token</span>
+            <pre className="token-box"><button aria-label="复制 token" type="button" onClick={() => copyText(result.token, "token")}><IconCopy size={16} stroke={1.9} /></button>{result.token}</pre>
+          </label>
+          <label>
+            <span>一键安装命令</span>
+            <pre className="token-box token-box--command"><button aria-label="复制安装命令" type="button" onClick={() => copyText(result.command, "安装命令")}><IconCopy size={16} stroke={1.9} /></button>{result.command}</pre>
+          </label>
+          <div className="drawer-preview">
+            <h3>使用说明</h3>
+            <div><span>角色</span><strong>{result.role}</strong></div>
+            <div><span>绑定资源</span><strong>{result.resourceName || "未绑定资源"}</strong></div>
+            <div><span>后端地址</span><strong>{result.backendUrl}</strong></div>
+          </div>
+        </div>
+        <div className="relay-drawer__footer">
+          <button className="button button--secondary" type="button" onClick={() => copyText(result.token, "token")}>复制 Token</button>
+          <button className="button button--primary" type="button" onClick={() => copyText(result.command, "安装命令")}>复制安装命令</button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, onSubmit }) {
   const formConfig = sectionId ? resourceFormConfigs[sectionId] : null;
   const [values, setValues] = useState({});
@@ -2827,7 +2907,7 @@ function LoginPage({ apiStatus, onLogin }) {
   );
 }
 
-function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onReload }) {
+function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap }) {
   if (activeSection === "overview") {
     return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} resourceData={resourceData} apiStatus={apiStatus} />;
   }
@@ -2846,6 +2926,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onEdit={onEdit}
         onDelete={onDelete}
         onReload={onReload}
+        onGenerateBootstrap={onGenerateBootstrap}
       />
     );
   }
@@ -2860,6 +2941,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onEdit={onEdit}
         onDelete={onDelete}
         onReload={onReload}
+        onGenerateBootstrap={onGenerateBootstrap}
       />
     );
   }
@@ -2874,6 +2956,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onEdit={onEdit}
         onDelete={onDelete}
         onReload={onReload}
+        onGenerateBootstrap={onGenerateBootstrap}
       />
     );
   }
@@ -2895,6 +2978,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
       onEdit={onEdit}
       onDelete={onDelete}
       onReload={onReload}
+      onGenerateBootstrap={onGenerateBootstrap}
     />
   );
 }
@@ -2911,6 +2995,7 @@ export function App() {
   const [adminUser, setAdminUser] = useState(null);
   const [authReady, setAuthReady] = useState(demoModeEnabled);
   const [toast, setToast] = useState("");
+  const [bootstrapResult, setBootstrapResult] = useState(null);
 
   function showToast(message) {
     setToast(message);
@@ -3101,6 +3186,46 @@ export function App() {
     showToast("中转访问节点已保存在本地演示数据");
   }
 
+  async function handleGenerateBootstrap(sectionId, item) {
+    const role = bootstrapRoleBySection[sectionId];
+    if (!role) return;
+
+    if (!hasAdminApiToken()) {
+      showToast("请先登录 Backend Core");
+      return;
+    }
+
+    const resourceId = ["proxy-node", "transit-relay"].includes(role) ? item?.resourceId || item?.raw?.id || null : null;
+    const name = item?.name || item?.id || `${role}-${new Date().toISOString().slice(5, 16).replace(/[-:T]/g, "")}`;
+    const body = {
+      role,
+      name,
+      ttlSeconds: 3600,
+      ...(resourceId ? { resourceId } : {}),
+    };
+    try {
+      const result = await adminPost("/api/v1/bootstrap-tokens", body);
+      const baseUrl = getAdminApiSettings().baseUrl || window.location.origin;
+      const command = roleInstallCommand({
+        role,
+        backendUrl: baseUrl,
+        token: result.token,
+        name,
+      });
+      setBootstrapResult({
+        token: result.token,
+        role,
+        command,
+        backendUrl: baseUrl,
+        resourceName: item?.name || item?.id || "",
+        expiresAt: isoText(result.record?.expiresAt),
+      });
+      showToast("Bootstrap Token 已生成");
+    } catch (error) {
+      showToast(`生成 Token 失败：${error.message}`);
+    }
+  }
+
   function handleSaveApiSettings(settings) {
     saveAdminApiSettings(settings);
     if (hasAdminApiToken()) {
@@ -3132,6 +3257,7 @@ export function App() {
           onEdit={openEditEditor}
           onDelete={handleDeleteResource}
           onReload={() => loadBackendData()}
+          onGenerateBootstrap={handleGenerateBootstrap}
         />
       </section>
       <CreateRelayDrawer open={drawerOpen} resourceData={resourceData} onClose={() => setDrawerOpen(false)} onSubmit={handleCreateRelay} />
@@ -3143,6 +3269,7 @@ export function App() {
         onClose={closeEditor}
         onSubmit={handleEditorSubmit}
       />
+      <BootstrapTokenDialog result={bootstrapResult} onClose={() => setBootstrapResult(null)} showToast={showToast} />
       {toast ? (
         <div className="toast" role="status">
           <IconBellRinging size={17} stroke={1.9} />

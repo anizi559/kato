@@ -33,7 +33,19 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { adminDelete, adminGet, adminPatch, adminPost, getAdminApiSettings, hasAdminApiToken, saveAdminApiSettings } from "./admin-api.js";
+import {
+  adminDelete,
+  adminGet,
+  adminPatch,
+  adminPost,
+  clearAdminSession,
+  fetchAdminSession,
+  getAdminApiSettings,
+  hasAdminApiToken,
+  loginAdmin,
+  logoutAdmin,
+  saveAdminApiSettings,
+} from "./admin-api.js";
 
 const navItems = [
   { id: "overview", label: "总览", icon: IconHome2 },
@@ -353,7 +365,7 @@ const proxyNodes = [
     status: "在线",
     host: "45.91.22.18",
     region: "Hong Kong",
-    agentVersion: "0.3.2",
+    agentVersion: "0.3.3",
     inbounds: "2",
     accessNodes: "4",
     configVersion: "v12",
@@ -369,7 +381,7 @@ const proxyNodes = [
     status: "在线",
     host: "103.77.12.90",
     region: "Singapore",
-    agentVersion: "0.3.2",
+    agentVersion: "0.3.3",
     inbounds: "2",
     accessNodes: "2",
     configVersion: "v11",
@@ -385,7 +397,7 @@ const proxyNodes = [
     status: "待发布",
     host: "160.16.88.40",
     region: "Tokyo",
-    agentVersion: "0.3.2",
+    agentVersion: "0.3.3",
     inbounds: "1",
     accessNodes: "1",
     configVersion: "v13",
@@ -495,7 +507,7 @@ const transitRelays = [
     status: "在线",
     host: "relay-hk.example.com",
     region: "Hong Kong",
-    agentVersion: "0.3.2",
+    agentVersion: "0.3.3",
     rules: "2",
     accessNodes: "2",
     tcp: "支持",
@@ -513,7 +525,7 @@ const transitRelays = [
     status: "在线",
     host: "relay-sg.example.com",
     region: "Singapore",
-    agentVersion: "0.3.2",
+    agentVersion: "0.3.3",
     rules: "1",
     accessNodes: "1",
     tcp: "支持",
@@ -531,7 +543,7 @@ const transitRelays = [
     status: "待发布",
     host: "relay-jp.example.com",
     region: "Tokyo",
-    agentVersion: "0.3.2",
+    agentVersion: "0.3.3",
     rules: "1",
     accessNodes: "1",
     tcp: "支持",
@@ -619,7 +631,7 @@ const frontendEdges = [
     status: "在线",
     host: "tools.example.com",
     region: "Hong Kong",
-    version: "0.3.2",
+    version: "0.3.3",
     certificate: "有效 · 84 天",
     backend: "backend-core-hk",
     camouflage: "大小写数字转换",
@@ -635,7 +647,7 @@ const frontendEdges = [
     status: "待发布",
     host: "calc.example.com",
     region: "Hong Kong",
-    version: "0.3.2",
+    version: "0.3.3",
     certificate: "待签发",
     backend: "backend-core-hk",
     camouflage: "进制转换",
@@ -718,7 +730,7 @@ const agents = [
     status: "在线",
     role: "proxy-node",
     boundResource: "proxy-hk-01",
-    version: "0.3.2",
+    version: "0.3.3",
     capabilities: "xray, hysteria2",
     heartbeat: "23 秒前",
     configVersion: "v12",
@@ -734,7 +746,7 @@ const agents = [
     status: "在线",
     role: "transit-relay",
     boundResource: "relay-hk-01",
-    version: "0.3.2",
+    version: "0.3.3",
     capabilities: "realm",
     heartbeat: "18 秒前",
     configVersion: "v12",
@@ -1377,7 +1389,7 @@ const resourceConfigs = {
     filters: [
       { key: "region", label: "区域", options: ["全部", "Hong Kong", "Singapore", "Tokyo", "Los Angeles"] },
       { key: "status", label: "状态", options: ["全部", "在线", "待发布", "离线"] },
-      { key: "agentVersion", label: "版本", options: ["全部", "0.3.2", "0.2.4"] },
+      { key: "agentVersion", label: "版本", options: ["全部", "0.3.3", "0.2.4"] },
     ],
     detailRows: [["公网地址", "host"], ["区域", "region"], ["Agent 版本", "agentVersion"], ["协议入站", "inbounds"], ["访问节点", "accessNodes"], ["最近心跳", "heartbeat"]],
     relationRows: [["配置版本", "configVersion"], ["绑定 Agent", (row) => `agent-${row.id}`], ["状态", "status"]],
@@ -1552,7 +1564,7 @@ const resourceConfigs = {
     segmentKey: "role",
     filters: [
       { key: "status", label: "状态", options: ["全部", "在线", "离线"] },
-      { key: "version", label: "版本", options: ["全部", "0.3.2", "0.2.4"] },
+      { key: "version", label: "版本", options: ["全部", "0.3.3", "0.2.4"] },
       { key: "lastApply", label: "应用", options: ["全部", "成功", "离线容灾"] },
     ],
     detailRows: [["角色", "role"], ["绑定资源", "boundResource"], ["状态", "status"], ["版本", "version"], ["能力", "capabilities"], ["最近心跳", "heartbeat"]],
@@ -1694,14 +1706,7 @@ const resourceConfigs = {
   },
 };
 
-const summaryCards = [
-  { label: "用户", value: "358", meta: "4 个待处理", tone: "success" },
-  { label: "访问节点", value: "7", meta: "1 个待发布", tone: "warning" },
-  { label: "代理节点", value: "4", meta: "1 个离线", tone: "danger" },
-  { label: "中转服务器", value: "3", meta: "全部可拉取配置", tone: "success" },
-  { label: "Agent", value: "3", meta: "1 个离线容灾", tone: "warning" },
-  { label: "今日流量", value: "1.42 TB", meta: "峰值 213 Mbps", tone: "success" },
-];
+const demoModeEnabled = import.meta.env?.VITE_ENABLE_DEMO === "true";
 
 const apiCollections = {
   users: "users",
@@ -1719,8 +1724,22 @@ const gib = 1024 ** 3;
 
 function createInitialResourceData() {
   return Object.fromEntries(
-    Object.entries(resourceConfigs).map(([sectionId, config]) => [sectionId, config.data]),
+    Object.entries(resourceConfigs).map(([sectionId, config]) => [sectionId, demoModeEnabled ? config.data : []]),
   );
+}
+
+function buildSummaryCards(resourceData = {}) {
+  const agents = resourceData.agents || [];
+  const offlineAgents = agents.filter((agent) => ["离线", "故障", "失败"].includes(agent.status)).length;
+  const pendingAccessNodes = (resourceData["access-nodes"] || []).filter((node) => node.status === "待发布").length;
+  return [
+    { label: "用户", value: String((resourceData.users || []).length), meta: "当前数据库用户", tone: "success" },
+    { label: "访问节点", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待发布`, tone: pendingAccessNodes ? "warning" : "success" },
+    { label: "代理节点", value: String((resourceData["proxy-nodes"] || []).length), meta: "由 Agent 接管配置", tone: "success" },
+    { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "同步转发规则", tone: "success" },
+    { label: "Agent", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success" },
+    { label: "今日流量", value: "0 GB", meta: "统计模块待接入", tone: "warning" },
+  ];
 }
 
 function resourceRecordId(row) {
@@ -2685,9 +2704,9 @@ function MobileNav({ activeSection, onSelect }) {
   );
 }
 
-function TopBar({ onPublish, apiStatus }) {
+function TopBar({ onPublish, apiStatus, adminUser, onLogout }) {
   const tone = apiStatus?.mode === "connected" ? "success" : apiStatus?.mode === "error" ? "danger" : "warning";
-  const label = apiStatus?.message || "Demo Mode";
+  const label = apiStatus?.message || "等待连接";
 
   return (
     <header className="topbar">
@@ -2701,9 +2720,9 @@ function TopBar({ onPublish, apiStatus }) {
       <div className="topbar__actions">
         <button className="button button--warning" type="button">待发布</button>
         <button className="button button--primary" type="button" onClick={onPublish}>发布配置</button>
-        <button className="admin-menu" type="button">
+        <button className="admin-menu" type="button" onClick={onLogout}>
           <IconUser size={18} stroke={1.8} />
-          Admin
+          {adminUser?.username || "Admin"}
           <IconChevronDown size={16} stroke={1.8} />
         </button>
       </div>
@@ -3044,7 +3063,10 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
   );
 }
 
-function OverviewPage({ showToast, setActiveSection }) {
+function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) {
+  const summaryCards = buildSummaryCards(resourceData);
+  const configVersion = apiStatus?.summary?.version ? `v${apiStatus.summary.version}` : "v1";
+  const updatedAt = apiStatus?.summary?.configUpdatedAt ? isoText(apiStatus.summary.configUpdatedAt) : "-";
   return (
     <div className="overview-shell">
       <section className="main-pane main-pane--wide">
@@ -3060,10 +3082,10 @@ function OverviewPage({ showToast, setActiveSection }) {
         </div>
 
         <div className="status-strip">
-          <div><StatusDot /><span>Backend Core</span><strong>Online</strong></div>
-          <div><StatusDot tone="warning" /><span>配置版本</span><strong>v12 / v13 draft</strong></div>
-          <div><StatusDot /><span>最近发布</span><strong>2026-06-16 09:42</strong></div>
-          <div><StatusDot tone="warning" /><span>待处理</span><strong>3 项变更</strong></div>
+          <div><StatusDot tone={apiStatus?.mode === "connected" ? "success" : "warning"} /><span>Backend Core</span><strong>{apiStatus?.mode === "connected" ? "Online" : "Connecting"}</strong></div>
+          <div><StatusDot /><span>配置版本</span><strong>{configVersion}</strong></div>
+          <div><StatusDot /><span>最近更新</span><strong>{updatedAt}</strong></div>
+          <div><StatusDot tone="warning" /><span>待处理</span><strong>0 项变更</strong></div>
         </div>
 
         <div className="metric-grid">
@@ -3135,7 +3157,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
         <div className="page-header">
           <div>
             <h1>系统设置</h1>
-            <p>管理 Backend Core 基础信息、管理员凭据、发布策略和 Agent 兼容版本</p>
+            <p>管理 Backend Core 基础信息、发布策略和 Agent 兼容版本</p>
           </div>
           <div className="page-header__actions">
             <button className="button button--secondary button--blue" type="button" onClick={() => showToast("设置变更已重置")}><IconRefresh size={17} stroke={1.9} />重置</button>
@@ -3146,8 +3168,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
         <div className="settings-grid">
           <section className="setting-panel setting-panel--wide">
             <h2>Backend API</h2>
-            <label><span>API Base URL</span><input value={apiSettings.baseUrl} onChange={(event) => updateApiSetting("baseUrl", event.target.value)} /></label>
-            <label><span>Admin Token</span><input type="password" value={apiSettings.token} onChange={(event) => updateApiSetting("token", event.target.value)} /></label>
+            <label><span>API Base URL</span><input placeholder="留空表示当前前端服务器 /api 反向代理" value={apiSettings.baseUrl} onChange={(event) => updateApiSetting("baseUrl", event.target.value)} /></label>
             <div className="api-status-card">
               <StatusDot tone={apiStatus?.mode === "connected" ? "success" : apiStatus?.mode === "error" ? "danger" : "warning"} />
               <span>{apiStatus?.message || "未连接 Backend Core"}</span>
@@ -3178,7 +3199,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
 
           <section className="setting-panel">
             <h2>Agent 兼容</h2>
-            <label><span>最低版本</span><input defaultValue="0.3.2" /></label>
+            <label><span>最低版本</span><input defaultValue="0.3.3" /></label>
             <label><span>心跳超时</span><select defaultValue="180s"><option>180s</option><option>300s</option></select></label>
             <label><span>运行时校验</span><select defaultValue="strict"><option value="strict">strict</option><option value="warn">warn only</option></select></label>
           </section>
@@ -3375,7 +3396,7 @@ function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, on
   }
 
   const title = item ? `编辑${formConfig.label}` : `新建${formConfig.label}`;
-  const modeText = hasAdminApiToken() ? "将提交到 Backend Core" : "未配置 API Token，将保存在本地演示数据";
+  const modeText = hasAdminApiToken() ? "将提交到 Backend Core" : demoModeEnabled ? "演示模式，将保存在本地演示数据" : "请先登录 Backend Core";
 
   return (
     <div className="drawer-scrim" role="presentation" onMouseDown={onClose}>
@@ -3529,9 +3550,60 @@ function CreateRelayDrawer({ open, onClose, resourceData, onSubmit }) {
   );
 }
 
+function LoginPage({ apiStatus, onLogin }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      await onLogin({ username, password });
+    } catch (loginError) {
+      setError(loginError.message || "登录失败");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="login-panel__brand">
+          <IconShieldLock size={28} stroke={1.8} />
+          <div>
+            <p className="eyebrow">Kato Control Plane</p>
+            <h1>管理员登录</h1>
+          </div>
+        </div>
+        <form className="login-form" onSubmit={handleSubmit}>
+          <label>
+            <span>管理员账号</span>
+            <input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} />
+          </label>
+          <label>
+            <span>管理员密码</span>
+            <input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          </label>
+          {error ? <div className="drawer-error">{error}</div> : null}
+          <button className="button button--primary" type="submit" disabled={submitting}>
+            <IconLock size={16} stroke={1.9} />{submitting ? "登录中" : "登录"}
+          </button>
+        </form>
+        <div className="api-status-card">
+          <StatusDot tone={apiStatus?.mode === "error" ? "danger" : "warning"} />
+          <span>{apiStatus?.message || "等待连接 Backend Core"}</span>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onReload }) {
   if (activeSection === "overview") {
-    return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} />;
+    return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} resourceData={resourceData} apiStatus={apiStatus} />;
   }
 
   if (activeSection === "settings") {
@@ -3540,7 +3612,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
 
   const config = resourceConfigs[activeSection];
   if (!config) {
-    return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} />;
+    return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} resourceData={resourceData} apiStatus={apiStatus} />;
   }
 
   return (
@@ -3565,9 +3637,11 @@ export function App() {
   const [editorState, setEditorState] = useState({ open: false, sectionId: null, item: null });
   const [resourceData, setResourceData] = useState(() => createInitialResourceData());
   const [apiStatus, setApiStatus] = useState(() => ({
-    mode: hasAdminApiToken() ? "loading" : "demo",
-    message: hasAdminApiToken() ? "正在连接 Backend Core" : "Demo Mode · 未配置 API Token",
+    mode: hasAdminApiToken() ? "loading" : demoModeEnabled ? "demo" : "login",
+    message: hasAdminApiToken() ? "正在连接 Backend Core" : demoModeEnabled ? "演示模式" : "请登录管理员账号",
   }));
+  const [adminUser, setAdminUser] = useState(null);
+  const [authReady, setAuthReady] = useState(demoModeEnabled);
   const [toast, setToast] = useState("");
 
   function showToast(message) {
@@ -3577,8 +3651,13 @@ export function App() {
 
   async function loadBackendData({ silent = false } = {}) {
     if (!hasAdminApiToken()) {
-      setApiStatus({ mode: "demo", message: "Demo Mode · 未配置 API Token" });
-      if (!silent) showToast("当前为本地演示模式");
+      if (demoModeEnabled) {
+        setApiStatus({ mode: "demo", message: "演示模式" });
+        if (!silent) showToast("当前为本地演示模式");
+        return;
+      }
+      setApiStatus({ mode: "login", message: "请登录管理员账号" });
+      setAuthReady(false);
       return;
     }
 
@@ -3602,17 +3681,63 @@ export function App() {
       setApiStatus({
         mode: "connected",
         message: `Backend Connected · v${summary.version} · ${summary.counts?.users || 0} 用户`,
+        summary,
       });
       if (!silent) showToast("已连接 Backend Core，数据已刷新");
     } catch (error) {
       setApiStatus({ mode: "error", message: `Backend Error · ${error.message}` });
+      if (error.message.includes("session") || error.message.includes("Invalid admin session")) {
+        clearAdminSession();
+        setAdminUser(null);
+        setAuthReady(false);
+      }
       if (!silent) showToast(`Backend 连接失败：${error.message}`);
     }
   }
 
   useEffect(() => {
-    loadBackendData({ silent: true });
+    async function bootstrapAuth() {
+      if (demoModeEnabled && !hasAdminApiToken()) {
+        setAuthReady(true);
+        await loadBackendData({ silent: true });
+        return;
+      }
+      if (!hasAdminApiToken()) {
+        setAuthReady(false);
+        setApiStatus({ mode: "login", message: "请登录管理员账号" });
+        return;
+      }
+      try {
+        setApiStatus({ mode: "loading", message: "正在校验登录状态" });
+        const session = await fetchAdminSession();
+        setAdminUser(session.user);
+        setAuthReady(true);
+        await loadBackendData({ silent: true });
+      } catch {
+        clearAdminSession();
+        setAdminUser(null);
+        setAuthReady(false);
+        setApiStatus({ mode: "login", message: "登录状态已过期，请重新登录" });
+      }
+    }
+    bootstrapAuth();
   }, []);
+
+  async function handleLogin(credentials) {
+    setApiStatus({ mode: "loading", message: "正在登录 Backend Core" });
+    const session = await loginAdmin(credentials);
+    setAdminUser(session.user);
+    setAuthReady(true);
+    await loadBackendData({ silent: true });
+    showToast("登录成功");
+  }
+
+  async function handleLogout() {
+    await logoutAdmin();
+    setAdminUser(null);
+    setAuthReady(false);
+    setApiStatus({ mode: "login", message: "已退出登录" });
+  }
 
   function openCreateEditor(sectionId) {
     setEditorState({ open: true, sectionId, item: null });
@@ -3644,6 +3769,10 @@ export function App() {
       return;
     }
 
+    if (!demoModeEnabled) {
+      throw new Error("请先登录 Backend Core");
+    }
+
     const nextRow = makeLocalRow(sectionId, values, resourceData, item);
     setResourceData((current) => ({
       ...current,
@@ -3669,6 +3798,11 @@ export function App() {
       return;
     }
 
+    if (!demoModeEnabled) {
+      showToast("请先登录 Backend Core");
+      return;
+    }
+
     setResourceData((current) => ({
       ...current,
       [sectionId]: current[sectionId].filter((row) => row.id !== item.id),
@@ -3685,6 +3819,10 @@ export function App() {
       return;
     }
 
+    if (!demoModeEnabled) {
+      throw new Error("请先登录 Backend Core");
+    }
+
     const { accessNode, relayRule } = makeLocalRelayBundle(values, resourceData);
     setResourceData((current) => ({
       ...current,
@@ -3697,14 +3835,22 @@ export function App() {
 
   function handleSaveApiSettings(settings) {
     saveAdminApiSettings(settings);
-    loadBackendData();
+    if (hasAdminApiToken()) {
+      loadBackendData();
+    } else {
+      setApiStatus({ mode: "login", message: "连接设置已保存，请登录管理员账号" });
+    }
+  }
+
+  if (!authReady && !demoModeEnabled) {
+    return <LoginPage apiStatus={apiStatus} onLogin={handleLogin} />;
   }
 
   return (
     <main className="app-shell">
       <Sidebar activeSection={activeSection} onSelect={setActiveSection} />
       <section className="workspace">
-        <TopBar apiStatus={apiStatus} onPublish={() => showToast("配置发布任务已创建")} />
+        <TopBar apiStatus={apiStatus} adminUser={adminUser} onLogout={handleLogout} onPublish={() => showToast("配置发布任务已创建")} />
         <MobileNav activeSection={activeSection} onSelect={setActiveSection} />
         <AppContent
           activeSection={activeSection}

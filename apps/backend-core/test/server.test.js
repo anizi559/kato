@@ -60,6 +60,49 @@ test("admin api supports configured browser cors preflight", async () => {
   }
 });
 
+test("frontend pairing token and admin session protect browser admin api", async () => {
+  const app = await startTestServer();
+  try {
+    await app.store.ensureAdminUser({ username: "admin", password: "secret-pass" });
+    const pairing = await app.store.createFrontendToken({ name: "test-frontend" });
+
+    const rejected = await requestJson(app, "/api/v1/auth/login", {
+      method: "POST",
+      body: {
+        username: "admin",
+        password: "secret-pass"
+      }
+    });
+    assert.equal(rejected.status, 401);
+
+    const login = await requestJson(app, "/api/v1/auth/login", {
+      method: "POST",
+      headers: {
+        "x-frontend-token": pairing.token
+      },
+      body: {
+        username: "admin",
+        password: "secret-pass"
+      }
+    });
+    assert.equal(login.status, 200);
+    assert.match(login.body.token, /^sess_/);
+    assert.equal(login.body.user.username, "admin");
+    assert.equal(login.body.user.passwordHash, undefined);
+
+    const summary = await requestJson(app, "/api/v1/admin/summary", {
+      headers: {
+        "x-frontend-token": pairing.token,
+        authorization: `Bearer ${login.body.token}`
+      }
+    });
+    assert.equal(summary.status, 200);
+    assert.equal(summary.body.counts.users, 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("bootstrap token registers an agent and desired state supports etag", async () => {
   const app = await startTestServer();
   try {

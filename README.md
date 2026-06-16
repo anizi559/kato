@@ -2,7 +2,7 @@
 
 自研代理管理系统 monorepo。
 
-当前版本：`0.3.2`
+当前版本：`0.3.3`
 
 已完成阶段：
 
@@ -38,16 +38,22 @@ sudo ./install.sh
 - 要安装哪种服务器角色。
 - 是否切换 apt 镜像源。
 - 源码从默认仓库克隆，还是使用自定义仓库/本地源码目录。
-- 后端端口、前端后端地址、节点 bootstrap token 等关键参数。
+- 后端监听端口、初始化管理员账号密码、前端配对 token、隐藏后台路径、节点 bootstrap token 等关键参数。
 
 也可以直接指定角色，适合服务器重装后的首次部署或后续升级：
 
 ```bash
 sudo ./install.sh --role backend-core
-sudo ./install.sh --role admin-ui --backend-url http://<backend-ip>:8080
+sudo ./install.sh --role admin-ui --backend-url http://<backend-ip>:8080 --frontend-token <front-token>
 sudo ./install.sh --role proxy-node --backend-url http://<backend-ip>:8080 --bootstrap-token <boot-token>
 sudo ./install.sh --role transit-relay --backend-url http://<backend-ip>:8080 --bootstrap-token <boot-token>
 ```
+
+推荐安装顺序：
+
+1. 先安装 `backend-core`。安装脚本会自动创建空数据库、引导创建管理员账号密码，并输出“前端配对 token”。
+2. 再安装 `admin-ui`。根路径会是一个轻量工具站，管理后台会放在隐藏路径，例如 `/admin-06161230/`；脚本会把 `/api/` 反向代理到后端并自动附带前端配对 token。
+3. 打开前端管理后台，用后端安装时创建的管理员账号密码登录。
 
 安装器会自动补齐 Debian/Ubuntu 上的基础工具、Node.js 22、systemd 服务、配置目录和运行目录。网络不稳定时可以显式切换 apt 镜像：
 
@@ -65,7 +71,8 @@ sudo ./install.sh --role backend-core --apt-mirror tuna
 配置文件说明：
 
 - `/etc/kato/backend-core.json`：面板后端配置，安装脚本会自动写入中文 `_说明` 字段。
-- `/etc/kato/backend-core.env`：面板后端环境变量，里面包含管理员密钥，请勿泄露。
+- `/etc/kato/backend-core.env`：面板后端环境变量，里面包含维护 API 密钥，请勿泄露。
+- `/etc/kato/frontend-pairing-token.txt`：后端生成的前端配对 token，用于前端服务器反向代理后端。
 - `/etc/kato/agent.json`：节点 Agent 配置，安装脚本会自动写入中文 `_说明` 字段。
 - `/etc/kato/agent.env`：节点 Agent 环境变量。
 - `configs/*.example.json`：仓库里的示例配置，可复制后改成自己的本地配置。

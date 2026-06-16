@@ -72,7 +72,7 @@ function applyCorsHeaders(req, res, config) {
   res.setHeader("access-control-allow-origin", origin);
   res.setHeader("vary", "Origin");
   res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type,x-admin-token,authorization,if-none-match");
+  res.setHeader("access-control-allow-headers", "content-type,x-admin-token,x-frontend-token,authorization,if-none-match");
   res.setHeader("access-control-expose-headers", "etag");
 }
 
@@ -98,11 +98,42 @@ async function route(req, res, store, config) {
     });
   }
 
+  if (path === "/api/v1/auth/login") {
+    if (req.method !== "POST") {
+      return methodNotAllowed(res);
+    }
+    await requireFrontend(req, store);
+    const body = await readJson(req);
+    const session = await store.loginAdmin({
+      username: body.username,
+      password: body.password
+    });
+    return jsonResponse(res, 200, session);
+  }
+
+  if (path === "/api/v1/auth/session") {
+    if (req.method !== "GET") {
+      return methodNotAllowed(res);
+    }
+    await requireFrontend(req, store);
+    const admin = requireAdminSession(req, store);
+    return jsonResponse(res, 200, { user: admin.user, expiresAt: admin.session.expiresAt });
+  }
+
+  if (path === "/api/v1/auth/logout") {
+    if (req.method !== "POST") {
+      return methodNotAllowed(res);
+    }
+    await requireFrontend(req, store);
+    await store.revokeAdminSession(bearerToken(req));
+    return jsonResponse(res, 200, { ok: true });
+  }
+
   if (path === "/api/v1/bootstrap-tokens") {
     if (req.method !== "POST") {
       return methodNotAllowed(res);
     }
-    requireAdmin(req, config);
+    await requireAdmin(req, config, store);
     const body = await readJson(req);
     assertRole(body.role);
     const result = await store.createBootstrapToken({
@@ -115,7 +146,7 @@ async function route(req, res, store, config) {
   }
 
   if (path === "/api/v1/admin" || path.startsWith("/api/v1/admin/")) {
-    requireAdmin(req, config);
+    await requireAdmin(req, config, store);
     return routeAdmin(req, res, store, path, url);
   }
 
@@ -256,11 +287,29 @@ async function routeAdmin(req, res, store, path, url) {
   return notFound(res);
 }
 
-function requireAdmin(req, config) {
+async function requireAdmin(req, config, store) {
   const token = req.headers["x-admin-token"];
-  if (!token || !safeEqual(token, config.adminToken)) {
-    throw Object.assign(new Error("Invalid admin token"), { statusCode: 401 });
+  if (token && safeEqual(token, config.adminToken)) {
+    return { source: "admin-token" };
   }
+  await requireFrontend(req, store);
+  const admin = requireAdminSession(req, store);
+  return { source: "admin-session", ...admin };
+}
+
+async function requireFrontend(req, store) {
+  const token = req.headers["x-frontend-token"];
+  if (!(await store.validateFrontendToken(token))) {
+    throw Object.assign(new Error("Invalid frontend token"), { statusCode: 401 });
+  }
+}
+
+function requireAdminSession(req, store) {
+  const session = store.findAdminSession(bearerToken(req));
+  if (!session) {
+    throw Object.assign(new Error("Invalid admin session"), { statusCode: 401 });
+  }
+  return session;
 }
 
 function requireAgent(req, store, agentId) {
@@ -268,12 +317,16 @@ function requireAgent(req, store, agentId) {
   if (!agent) {
     throw Object.assign(new Error("Agent not found"), { statusCode: 404 });
   }
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  const token = bearerToken(req);
   if (!token || !safeEqual(sha256(token), agent.secretHash)) {
     throw Object.assign(new Error("Invalid agent token"), { statusCode: 401 });
   }
   return agent;
+}
+
+function bearerToken(req) {
+  const auth = req.headers.authorization || "";
+  return auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
 }
 
 async function readJson(req) {

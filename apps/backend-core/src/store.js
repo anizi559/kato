@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PROTOCOLS, nowIso } from "../../../packages/shared/src/protocol.js";
 import { compileDesiredState } from "./desired-state.js";
-import { createHex, createId, createSecret, createUuid, createX25519KeyPair, sha256 } from "./security.js";
+import { createHex, createId, createSecret, createUuid, createX25519KeyPair, hashPassword, sha256, verifyPassword } from "./security.js";
 
 const RESOURCE_SPECS = Object.freeze({
   plans: { stateKey: "plans", idPrefix: "plan", label: "plan" },
@@ -28,6 +28,9 @@ function emptyState() {
       defaultTrafficUnit: "GiB",
       defaultSubscriptionIntervalSeconds: 3600
     },
+    adminUsers: [],
+    adminSessions: [],
+    frontendTokens: [],
     bootstrapTokens: [],
     agents: [],
     plans: [],
@@ -82,6 +85,108 @@ export class JsonStore {
     this.state.bootstrapTokens.push(record);
     await this.save();
     return { token, record: withoutHash(record) };
+  }
+
+  async ensureAdminUser({ username, password }) {
+    const normalizedUsername = requiredName(username, "admin username");
+    const existing = this.state.adminUsers.find((user) => user.username.toLowerCase() === normalizedUsername.toLowerCase());
+    const now = nowIso();
+    if (existing) {
+      if (password) {
+        existing.passwordHash = await hashPassword(password);
+        existing.updatedAt = now;
+      }
+      await this.save();
+      return publicAdminUser(existing);
+    }
+    const user = {
+      id: createId("admin"),
+      username: normalizedUsername,
+      passwordHash: await hashPassword(requiredName(password, "admin password")),
+      role: "owner",
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      lastLoginAt: null
+    };
+    this.state.adminUsers.push(user);
+    this.recordAudit("admin_user.created", user.id, { username: user.username });
+    await this.save();
+    return publicAdminUser(user);
+  }
+
+  async createFrontendToken({ name = "panel-frontend" } = {}) {
+    const token = createSecret("front");
+    const record = {
+      id: createId("front"),
+      name: requiredName(name, "frontend token name"),
+      tokenHash: sha256(token),
+      createdAt: nowIso(),
+      lastUsedAt: null,
+      revokedAt: null
+    };
+    this.state.frontendTokens.push(record);
+    this.recordAudit("frontend_token.created", record.id, { name: record.name });
+    await this.save();
+    return { token, record: publicFrontendToken(record) };
+  }
+
+  frontendTokenRequired() {
+    return this.state.frontendTokens.some((token) => !token.revokedAt);
+  }
+
+  async validateFrontendToken(token) {
+    if (!this.frontendTokenRequired()) {
+      return true;
+    }
+    const tokenHash = sha256(token || "");
+    const record = this.state.frontendTokens.find((item) => item.tokenHash === tokenHash && !item.revokedAt);
+    if (!record) {
+      return false;
+    }
+    record.lastUsedAt = nowIso();
+    await this.save();
+    return true;
+  }
+
+  async loginAdmin({ username, password }) {
+    const user = this.state.adminUsers.find((item) => item.username.toLowerCase() === String(username || "").trim().toLowerCase());
+    if (!user || !user.enabled || !(await verifyPassword(password || "", user.passwordHash))) {
+      throw httpError("Invalid username or password", 401);
+    }
+    const token = createSecret("sess");
+    const session = {
+      id: createId("sess"),
+      userId: user.id,
+      tokenHash: sha256(token),
+      createdAt: nowIso(),
+      expiresAt: new Date(Date.now() + 7 * 86400 * 1000).toISOString(),
+      revokedAt: null
+    };
+    this.state.adminSessions.push(session);
+    user.lastLoginAt = nowIso();
+    await this.save();
+    return { token, user: publicAdminUser(user), expiresAt: session.expiresAt };
+  }
+
+  findAdminSession(token) {
+    const tokenHash = sha256(token || "");
+    const session = this.state.adminSessions.find((item) => item.tokenHash === tokenHash && !item.revokedAt);
+    if (!session || new Date(session.expiresAt).getTime() < Date.now()) {
+      return null;
+    }
+    const user = this.state.adminUsers.find((item) => item.id === session.userId && item.enabled);
+    return user ? { session, user: publicAdminUser(user) } : null;
+  }
+
+  async revokeAdminSession(token) {
+    const tokenHash = sha256(token || "");
+    const session = this.state.adminSessions.find((item) => item.tokenHash === tokenHash && !item.revokedAt);
+    if (session) {
+      session.revokedAt = nowIso();
+      await this.save();
+    }
+    return { ok: true };
   }
 
   async consumeBootstrapToken(token) {
@@ -676,6 +781,9 @@ function normalizeState(rawState) {
     state[spec.stateKey] = Array.isArray(state[spec.stateKey]) ? state[spec.stateKey] : [];
   }
   state.bootstrapTokens = Array.isArray(state.bootstrapTokens) ? state.bootstrapTokens : [];
+  state.adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+  state.adminSessions = Array.isArray(state.adminSessions) ? state.adminSessions : [];
+  state.frontendTokens = Array.isArray(state.frontendTokens) ? state.frontendTokens : [];
   state.agents = Array.isArray(state.agents) ? state.agents : [];
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
   state.configRevision = state.configRevision || 1;
@@ -809,6 +917,16 @@ function removeWhere(items, predicate) {
 
 function publicAgent(agent) {
   const { secretHash, ...rest } = agent;
+  return clone(rest);
+}
+
+function publicAdminUser(user) {
+  const { passwordHash, ...rest } = user;
+  return clone(rest);
+}
+
+function publicFrontendToken(token) {
+  const { tokenHash, ...rest } = token;
   return clone(rest);
 }
 

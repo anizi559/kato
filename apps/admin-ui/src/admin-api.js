@@ -1,6 +1,6 @@
-const DEFAULT_BASE_URL = "http://127.0.0.1:8080";
+const DEFAULT_BASE_URL = "";
 const BASE_URL_KEY = "kato.adminApiBaseUrl";
-const TOKEN_KEY = "kato.adminToken";
+const SESSION_TOKEN_KEY = "kato.adminSessionToken";
 
 export function getAdminApiSettings() {
   if (typeof window === "undefined") {
@@ -12,21 +12,51 @@ export function getAdminApiSettings() {
 
   const env = import.meta.env || {};
   const storedBaseUrl = window.localStorage.getItem(BASE_URL_KEY);
-  const storedToken = window.localStorage.getItem(TOKEN_KEY);
   return {
     baseUrl: env.VITE_ADMIN_API_BASE_URL || storedBaseUrl || DEFAULT_BASE_URL,
-    token: env.VITE_ADMIN_TOKEN || storedToken || "",
   };
 }
 
-export function saveAdminApiSettings({ baseUrl, token }) {
+export function saveAdminApiSettings({ baseUrl }) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(BASE_URL_KEY, baseUrl || DEFAULT_BASE_URL);
-  window.localStorage.setItem(TOKEN_KEY, token || "");
 }
 
 export function hasAdminApiToken() {
-  return Boolean(getAdminApiSettings().token);
+  return Boolean(getAdminSessionToken());
+}
+
+export function getAdminSessionToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(SESSION_TOKEN_KEY) || "";
+}
+
+export function clearAdminSession() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(SESSION_TOKEN_KEY);
+}
+
+export async function loginAdmin({ username, password }) {
+  const payload = await publicRequest("/api/v1/auth/login", {
+    method: "POST",
+    body: { username, password },
+  });
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(SESSION_TOKEN_KEY, payload.token);
+  }
+  return payload;
+}
+
+export async function fetchAdminSession() {
+  return adminRequest("/api/v1/auth/session");
+}
+
+export async function logoutAdmin() {
+  try {
+    await adminRequest("/api/v1/auth/logout", { method: "POST" });
+  } finally {
+    clearAdminSession();
+  }
 }
 
 export async function adminGet(path) {
@@ -46,22 +76,35 @@ export async function adminDelete(path) {
 }
 
 async function adminRequest(path, options = {}) {
-  const { baseUrl, token } = getAdminApiSettings();
+  const token = getAdminSessionToken();
   if (!token) {
-    throw new Error("ADMIN_API_TOKEN_MISSING");
+    throw new Error("ADMIN_SESSION_MISSING");
   }
 
   const headers = {
-    "x-admin-token": token,
+    authorization: `Bearer ${token}`,
+    ...(options.headers || {}),
+  };
+  return fetchJson(path, options, headers);
+}
+
+async function publicRequest(path, options = {}) {
+  return fetchJson(path, options);
+}
+
+async function fetchJson(path, options = {}, headers = {}) {
+  const { baseUrl } = getAdminApiSettings();
+  const requestHeaders = {
+    ...headers,
     ...(options.headers || {}),
   };
   if (options.body) {
-    headers["content-type"] = "application/json";
+    requestHeaders["content-type"] = "application/json";
   }
 
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method || "GET",
-    headers,
+    headers: requestHeaders,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const text = await response.text();

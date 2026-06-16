@@ -38,7 +38,7 @@ Content-Type: application/json
 ```json
 {
   "bootstrapToken": "boot_xxx",
-  "agentVersion": "0.3.2",
+  "agentVersion": "0.3.3",
   "hostname": "hk-01",
   "capabilities": {
     "lastKnownGood": true,
@@ -56,7 +56,7 @@ Content-Type: application/json
   "agentSecret": "agent_xxx",
   "role": "proxy-node",
   "name": "hk-01",
-  "backendVersion": "0.3.2"
+  "backendVersion": "0.3.3"
 }
 ```
 

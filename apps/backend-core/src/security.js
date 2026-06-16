@@ -1,4 +1,7 @@
-import { createHash, generateKeyPairSync, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
+
+const scrypt = promisify(scryptCallback);
 
 export function createSecret(prefix = "sec") {
   return `${prefix}_${randomBytes(32).toString("base64url")}`;
@@ -26,6 +29,21 @@ export function createX25519KeyPair() {
 
 export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export async function hashPassword(password) {
+  const salt = randomBytes(16).toString("base64url");
+  const derived = await scrypt(String(password), salt, 32);
+  return `scrypt:${salt}:${derived.toString("base64url")}`;
+}
+
+export async function verifyPassword(password, encoded) {
+  const [scheme, salt, expected] = String(encoded || "").split(":");
+  if (scheme !== "scrypt" || !salt || !expected) {
+    return false;
+  }
+  const derived = await scrypt(String(password), salt, 32);
+  return safeEqual(derived.toString("base64url"), expected);
 }
 
 export function safeEqual(a, b) {

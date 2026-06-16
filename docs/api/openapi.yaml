@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kato Backend Core API
-  version: 0.3.2
+  version: 0.3.3
 servers:
   - url: http://127.0.0.1:8080
 paths:
@@ -50,11 +50,53 @@ paths:
       responses:
         "201":
           description: Bootstrap token created
+  /api/v1/auth/login:
+    post:
+      summary: Login with an admin username and password through a paired panel frontend
+      security:
+        - FrontendToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Admin session created
+  /api/v1/auth/session:
+    get:
+      summary: Read current admin session
+      security:
+        - FrontendToken: []
+          AdminSession: []
+      responses:
+        "200":
+          description: Current admin session
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke current admin session
+      security:
+        - FrontendToken: []
+          AdminSession: []
+      responses:
+        "200":
+          description: Session revoked
   /api/v1/admin/summary:
     get:
       summary: Backend Core admin summary
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       responses:
         "200":
           description: Summary response
@@ -63,6 +105,8 @@ paths:
       summary: List registered agents
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       responses:
         "200":
           description: Agent list
@@ -71,6 +115,8 @@ paths:
       summary: List admin resources
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       parameters:
         - $ref: "#/components/parameters/AdminCollection"
       responses:
@@ -80,6 +126,8 @@ paths:
       summary: Create admin resource
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       parameters:
         - $ref: "#/components/parameters/AdminCollection"
       requestBody:
@@ -96,6 +144,8 @@ paths:
       summary: Get admin resource
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       parameters:
         - $ref: "#/components/parameters/AdminCollection"
         - $ref: "#/components/parameters/ResourceId"
@@ -106,6 +156,8 @@ paths:
       summary: Update admin resource
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       parameters:
         - $ref: "#/components/parameters/AdminCollection"
         - $ref: "#/components/parameters/ResourceId"
@@ -122,6 +174,8 @@ paths:
       summary: Delete admin resource
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       parameters:
         - $ref: "#/components/parameters/AdminCollection"
         - $ref: "#/components/parameters/ResourceId"
@@ -133,6 +187,8 @@ paths:
       summary: Create relay access node and linked relay rule
       security:
         - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
       requestBody:
         required: true
         content:
@@ -288,6 +344,13 @@ components:
       type: apiKey
       in: header
       name: X-Admin-Token
+    FrontendToken:
+      type: apiKey
+      in: header
+      name: X-Frontend-Token
+    AdminSession:
+      type: http
+      scheme: bearer
     AgentBearer:
       type: http
       scheme: bearer

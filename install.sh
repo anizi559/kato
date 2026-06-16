@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.3.2"
+APP_VERSION="0.3.3"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -35,6 +35,10 @@ admin_ui_port="${KATO_ADMIN_UI_PORT:-80}"
 backend_url="${KATO_BACKEND_URL:-}"
 admin_token="${BACKEND_ADMIN_TOKEN:-${KATO_ADMIN_TOKEN:-}}"
 admin_cors_origins="${BACKEND_ADMIN_CORS_ORIGINS:-}"
+admin_username="${KATO_ADMIN_USERNAME:-admin}"
+admin_password="${KATO_ADMIN_PASSWORD:-}"
+frontend_pairing_token="${KATO_FRONTEND_PAIRING_TOKEN:-}"
+panel_admin_path="${KATO_PANEL_ADMIN_PATH:-}"
 agent_name="${KATO_AGENT_NAME:-}"
 bootstrap_token="${KATO_BOOTSTRAP_TOKEN:-}"
 agent_auto_start="${KATO_AGENT_AUTO_START:-false}"
@@ -48,9 +52,8 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
   sudo ./install.sh --role <role> [options]
 
 安装角色：
-  backend-core       面板后端 API 和本地数据库
-  admin-ui           面板前端网页，由 nginx 提供访问
-  frontend-edge      前端入口服务器占位角色
+  backend-core       面板后端 API、本地数据库、管理员账号初始化
+  admin-ui           面板前端服务器：根路径工具站，隐藏路径进入管理后台
   subscription-edge  订阅入口服务器占位角色
   proxy-node         代理节点 Agent，并安装 Xray / Hysteria2
   transit-relay      中转服务器 Agent，并安装 Realm
@@ -70,10 +73,14 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
   --listen-host <host>           后端监听地址，默认：0.0.0.0
   --listen-port <port>           后端监听端口，默认：8080
   --admin-token <token>          后端管理员密钥；不填会自动生成
+  --admin-username <name>        初始化管理员账号，默认：admin
+  --admin-password <password>    初始化管理员密码；不填会交互输入
   --admin-cors-origins <origins> 允许访问后端的前端地址，多个地址用英文逗号分隔
 
 前端参数：
-  --backend-url <url>            前端连接的后端 API 地址，会写入前端构建结果
+  --backend-url <url>            前端服务器反向代理连接的后端 API 地址
+  --frontend-token <token>       后端安装完成输出的前端配对 token
+  --admin-path <path>            管理后台隐藏入口路径；不填自动生成
   --admin-ui-port <port>         nginx 对外监听端口，默认：80
 
 Agent / 节点参数：
@@ -89,7 +96,7 @@ Agent / 节点参数：
 常用示例：
   sudo ./install.sh
   sudo ./install.sh --role backend-core --listen-port 8080
-  sudo ./install.sh --role admin-ui --backend-url http://156.226.168.215:8080
+  sudo ./install.sh --role admin-ui --backend-url http://156.226.168.215:8080 --frontend-token front_xxx
   sudo ./install.sh --role proxy-node --backend-url http://panel:8080 --bootstrap-token boot_xxx
 USAGE
 }
@@ -144,6 +151,28 @@ prompt_required() {
   done
 
   printf -v "$var_name" '%s' "$value"
+}
+
+prompt_secret_confirm() {
+  local var_name="$1"
+  local question="$2"
+  local value confirm
+
+  while true; do
+    read -r -s -p "${question}: " value
+    echo
+    if [[ -z "$value" ]]; then
+      warn "这个值不能为空，请重新输入"
+      continue
+    fi
+    read -r -s -p "请再输入一次确认: " confirm
+    echo
+    if [[ "$value" == "$confirm" ]]; then
+      printf -v "$var_name" '%s' "$value"
+      return
+    fi
+    warn "两次输入不一致，请重新输入"
+  done
 }
 
 prompt_yes_no() {
@@ -219,6 +248,14 @@ while [[ $# -gt 0 ]]; do
       admin_token="${2:-}"
       shift 2
       ;;
+    --admin-username)
+      admin_username="${2:-}"
+      shift 2
+      ;;
+    --admin-password)
+      admin_password="${2:-}"
+      shift 2
+      ;;
     --admin-cors-origins)
       admin_cors_origins="${2:-}"
       shift 2
@@ -229,6 +266,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --admin-ui-port)
       admin_ui_port="${2:-}"
+      shift 2
+      ;;
+    --frontend-token|--frontend-pairing-token|--pairing-token)
+      frontend_pairing_token="${2:-}"
+      shift 2
+      ;;
+    --admin-path|--panel-admin-path)
+      panel_admin_path="${2:-}"
       shift 2
       ;;
     --bootstrap-token)
@@ -307,21 +352,19 @@ prompt_role() {
 
   cat <<'MENU'
 请选择要安装的服务器角色：
-  1) backend-core       面板后端 API 和数据库
-  2) admin-ui           面板前端网页
-  3) frontend-edge      前端入口服务器
-  4) subscription-edge  订阅入口服务器
-  5) proxy-node         代理节点服务器
-  6) transit-relay      中转服务器
+  1) backend-core       面板后端 API、数据库、管理员账号
+  2) admin-ui           面板前端服务器（根路径工具站，隐藏路径进后台）
+  3) subscription-edge  订阅入口服务器
+  4) proxy-node         代理节点服务器
+  5) transit-relay      中转服务器
 MENU
   read -r -p "请输入序号： " choice
   case "$choice" in
     1) role="backend-core" ;;
     2) role="admin-ui" ;;
-    3) role="frontend-edge" ;;
-    4) role="subscription-edge" ;;
-    5) role="proxy-node" ;;
-    6) role="transit-relay" ;;
+    3) role="subscription-edge" ;;
+    4) role="proxy-node" ;;
+    5) role="transit-relay" ;;
     *) die "不支持的角色序号：$choice" ;;
   esac
 }
@@ -630,11 +673,17 @@ prompt_backend_options() {
   log "请填写面板后端参数。直接回车表示使用括号里的默认值。"
   prompt_line listen_host "后端监听地址；0.0.0.0 表示允许其他服务器访问" "$listen_host"
   prompt_line listen_port "后端监听端口" "$listen_port"
+  prompt_required admin_username "初始化管理员账号" "$admin_username"
+  if [[ -z "$admin_password" ]]; then
+    prompt_secret_confirm admin_password "初始化管理员密码"
+  else
+    log "初始化管理员密码已通过参数或环境变量提供。"
+  fi
 
   if [[ -z "$admin_token" ]]; then
-    read -r -p "管理员 API 密钥（直接回车自动生成强随机密钥）: " admin_token
+    read -r -p "后端维护 API 密钥（直接回车自动生成；普通网页登录不用它）: " admin_token
   else
-    log "管理员 API 密钥已通过参数或环境变量提供，安装时会直接使用。"
+    log "后端维护 API 密钥已通过参数或环境变量提供，安装时会直接使用。"
   fi
 
   if [[ -z "$admin_cors_origins" ]]; then
@@ -649,7 +698,16 @@ prompt_backend_options() {
 prompt_admin_ui_options() {
   echo
   log "请填写面板前端参数。"
-  prompt_line backend_url "后端 API 地址；前后端同机可直接回车" "${backend_url:-http://127.0.0.1:${listen_port}}"
+  prompt_required backend_url "后端 API 地址，例如 http://后端IP:8080" "${backend_url:-http://127.0.0.1:${listen_port}}"
+  if [[ -z "$frontend_pairing_token" ]]; then
+    prompt_required frontend_pairing_token "后端安装完成输出的前端配对 token"
+  else
+    log "前端配对 token 已通过参数或环境变量提供。"
+  fi
+  if [[ -z "$panel_admin_path" ]]; then
+    panel_admin_path="/admin-$(date '+%m%d%H%M%S')"
+  fi
+  prompt_line panel_admin_path "管理后台隐藏入口路径" "$panel_admin_path"
   prompt_line admin_ui_port "前端网页监听端口" "$admin_ui_port"
 }
 
@@ -845,6 +903,36 @@ EOF
   chmod 0640 "$config_path" "$env_path"
 }
 
+initialize_backend_store() {
+  local token_path="/etc/kato/frontend-pairing-token.txt"
+
+  [[ -n "$admin_username" ]] || die "缺少管理员账号"
+  [[ -n "$admin_password" ]] || die "缺少管理员密码；交互安装会提示输入，非交互模式请传入 --admin-password"
+
+  (cd "$source_dir" && BACKEND_STORE_PATH="/var/lib/kato/backend-core.json" \
+    KATO_INIT_ADMIN_USERNAME="$admin_username" \
+    KATO_INIT_ADMIN_PASSWORD="$admin_password" \
+    "$install_root/node/bin/node" --input-type=module <<'NODE' >"$token_path"
+import { JsonStore } from "./apps/backend-core/src/store.js";
+
+const store = new JsonStore(process.env.BACKEND_STORE_PATH);
+await store.load();
+await store.ensureAdminUser({
+  username: process.env.KATO_INIT_ADMIN_USERNAME,
+  password: process.env.KATO_INIT_ADMIN_PASSWORD
+});
+const result = await store.createFrontendToken({ name: `panel-frontend-${new Date().toISOString()}` });
+process.stdout.write(`${result.token}\n`);
+NODE
+)
+
+  chown kato:kato /var/lib/kato/backend-core.json
+  chmod 0640 /var/lib/kato/backend-core.json
+  chown root:kato "$token_path"
+  chmod 0640 "$token_path"
+  frontend_pairing_token="$(cat "$token_path")"
+}
+
 write_systemd_service() {
   local name="$1"
   local content="$2"
@@ -855,6 +943,7 @@ write_systemd_service() {
 install_backend_core() {
   log "正在安装面板后端 backend-core"
   write_backend_config
+  initialize_backend_store
 
   write_systemd_service "kato-backend-core" "[Unit]
 Description=Kato 面板后端服务
@@ -886,7 +975,13 @@ WantedBy=multi-user.target"
 
   log "面板后端安装完成"
   log "后端 API 地址：http://$(public_ipv4):${listen_port}"
-  log "管理员密钥保存位置：/etc/kato/backend-core.env"
+  log "管理员账号：${admin_username}"
+  log "后端维护 API 密钥保存位置：/etc/kato/backend-core.env"
+  log "前端配对 token 保存位置：/etc/kato/frontend-pairing-token.txt"
+  printf '\n========== 请复制给前端服务器安装使用 ==========\n'
+  printf '后端 API 地址: http://%s:%s\n' "$(public_ipv4)" "${listen_port}"
+  printf '前端配对 token: %s\n' "${frontend_pairing_token}"
+  printf '==============================================\n\n'
 }
 
 wait_for_backend() {
@@ -908,35 +1003,119 @@ install_nginx() {
   systemctl enable --now nginx.service
 }
 
+normalize_panel_admin_path() {
+  local value="$1"
+  value="${value:-/admin-$(openssl rand -hex 4)}"
+  value="/${value#/}"
+  value="${value%/}"
+  [[ "$value" != "/" ]] || die "管理后台入口路径不能是 /"
+  [[ "$value" =~ ^/[A-Za-z0-9._-]+$ ]] || die "管理后台入口路径只能包含字母、数字、点、下划线和中横线，例如 /admin-a1b2c3d4"
+  printf '%s' "$value"
+}
+
+write_tool_site() {
+  local root_dir="$1"
+  install -d -m 0755 -o root -g root "$root_dir"
+  cat >"${root_dir}/index.html" <<'HTML'
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>文本工具</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #172033; background: #f7f9fc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    main { width: min(860px, 100%); display: grid; gap: 18px; }
+    header { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+    h1 { margin: 0 0 8px; font-size: 25px; letter-spacing: 0; }
+    p { margin: 0; color: #66728a; }
+    section { border: 1px solid #dfe6ef; border-radius: 6px; background: #fff; box-shadow: 0 12px 30px rgba(15,31,56,.08); overflow: hidden; }
+    textarea { width: 100%; min-height: 260px; resize: vertical; border: 0; outline: 0; padding: 18px; color: #172033; font: 15px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; border-top: 1px solid #dfe6ef; background: #f9fbfe; }
+    button { height: 36px; padding: 0 14px; border: 1px solid #cfd8e6; border-radius: 5px; background: #fff; color: #25324a; font: inherit; cursor: pointer; }
+    button.primary { color: #fff; border-color: #0b5feb; background: linear-gradient(180deg,#0d6bff,#0757d8); }
+    footer { color: #8a96aa; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>文本大小写与数字转换</h1>
+        <p>常用文本处理小工具，支持大小写、空格清理和数字提取。</p>
+      </div>
+    </header>
+    <section>
+      <textarea id="text" placeholder="在这里输入或粘贴文本..."></textarea>
+      <div class="actions">
+        <button class="primary" onclick="convert('upper')">转大写</button>
+        <button onclick="convert('lower')">转小写</button>
+        <button onclick="convert('trim')">清理多余空格</button>
+        <button onclick="convert('number')">只保留数字</button>
+        <button onclick="copyText()">复制结果</button>
+      </div>
+    </section>
+    <footer>本工具在浏览器本地处理文本，不会上传内容。</footer>
+  </main>
+  <script>
+    const box = document.getElementById("text");
+    function convert(type) {
+      if (type === "upper") box.value = box.value.toUpperCase();
+      if (type === "lower") box.value = box.value.toLowerCase();
+      if (type === "trim") box.value = box.value.replace(/\s+/g, " ").trim();
+      if (type === "number") box.value = box.value.replace(/\D+/g, "");
+    }
+    async function copyText() {
+      await navigator.clipboard.writeText(box.value);
+    }
+  </script>
+</body>
+</html>
+HTML
+}
+
 install_admin_ui() {
-  log "正在安装面板前端 admin-ui"
+  log "正在安装面板前端服务器 admin-ui"
   install_nginx
 
   local app_dir="${source_dir}/apps/admin-ui"
+  local site_root="/var/www/kato-panel-frontend"
+  local normalized_admin_path admin_base backend_upstream
   [[ -d "$app_dir" ]] || die "找不到面板前端源码目录：$app_dir"
   if [[ -z "$backend_url" ]]; then
-    backend_url="http://127.0.0.1:${listen_port}"
+    die "缺少后端 API 地址，请传入 --backend-url 或在交互安装中填写"
   fi
+  if [[ -z "$frontend_pairing_token" ]]; then
+    die "缺少前端配对 token，请传入 --frontend-token；后端安装完成时会输出这个值"
+  fi
+  normalized_admin_path="$(normalize_panel_admin_path "$panel_admin_path")"
+  panel_admin_path="$normalized_admin_path"
+  admin_base="${panel_admin_path}/"
+  backend_upstream="${backend_url%/}"
 
   log "正在安装前端 npm 依赖"
   (cd "$app_dir" && "$install_root/node/bin/npm" ci)
 
   log "正在构建面板前端"
-  (cd "$app_dir" && VITE_ADMIN_API_BASE_URL="$backend_url" "$install_root/node/bin/npm" run build)
+  (cd "$app_dir" && VITE_ADMIN_API_BASE_URL="" VITE_ENABLE_DEMO="false" "$install_root/node/bin/npm" run build -- --base "$admin_base")
 
-  install -d -m 0755 -o root -g root /var/www/kato-admin-ui
-  rsync -a --delete "${app_dir}/dist/" /var/www/kato-admin-ui/
+  rm -rf "$site_root"
+  write_tool_site "$site_root"
+  install -d -m 0755 -o root -g root "${site_root}${panel_admin_path}"
+  rsync -a --delete "${app_dir}/dist/" "${site_root}${panel_admin_path}/"
 
   if [[ "$admin_ui_port" == "80" && -e /etc/nginx/sites-enabled/default ]]; then
     rm -f /etc/nginx/sites-enabled/default
   fi
 
-  cat >/etc/nginx/sites-available/kato-admin-ui.conf <<EOF
+  cat >/etc/nginx/sites-available/kato-panel-frontend.conf <<EOF
 server {
     listen ${admin_ui_port} default_server;
     listen [::]:${admin_ui_port} default_server;
     server_name _;
-    root /var/www/kato-admin-ui;
+    root ${site_root};
     index index.html;
 
     location = /health {
@@ -944,16 +1123,38 @@ server {
         return 200 "ok\n";
     }
 
+    location = ${panel_admin_path} {
+        return 302 ${panel_admin_path}/;
+    }
+
+    location ^~ ${panel_admin_path}/ {
+        try_files \$uri \$uri/ ${panel_admin_path}/index.html;
+    }
+
+    location /api/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Frontend-Token ${frontend_pairing_token};
+        proxy_pass ${backend_upstream};
+    }
+
     location / {
         try_files \$uri \$uri/ /index.html;
     }
 }
 EOF
-  ln -sfn /etc/nginx/sites-available/kato-admin-ui.conf /etc/nginx/sites-enabled/kato-admin-ui.conf
+  rm -f /etc/nginx/sites-enabled/kato-admin-ui.conf
+  ln -sfn /etc/nginx/sites-available/kato-panel-frontend.conf /etc/nginx/sites-enabled/kato-panel-frontend.conf
   nginx -t
   systemctl reload nginx.service
   curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
-  log "面板前端安装完成：http://$(public_ipv4):${admin_ui_port}"
+  log "面板前端服务器安装完成"
+  log "工具站入口：http://$(public_ipv4):${admin_ui_port}/"
+  log "管理后台入口：http://$(public_ipv4):${admin_ui_port}${panel_admin_path}/"
+  log "后端 API 反向代理：/api/ -> ${backend_upstream}"
 }
 
 github_latest_tag() {

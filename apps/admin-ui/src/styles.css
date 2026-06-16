@@ -1075,6 +1075,59 @@ a {
   font-size: 13px;
 }
 
+.token-dialog {
+  max-width: min(720px, calc(100vw - 28px));
+}
+
+.token-dialog__body {
+  display: grid;
+  gap: 14px;
+  padding: 18px 22px;
+}
+
+.token-dialog__body label {
+  display: grid;
+  gap: 7px;
+  color: #526078;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.token-box {
+  position: relative;
+  min-height: 42px;
+  max-height: 190px;
+  margin: 0;
+  overflow: auto;
+  padding: 13px 46px 13px 13px;
+  border: 1px solid #cfe0f8;
+  border-radius: 6px;
+  background: #f6faff;
+  color: #172033;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.token-box--command {
+  word-break: break-word;
+}
+
+.token-box button {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c9d8ec;
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--blue);
+}
+
 .relay-drawer__footer {
   margin-top: auto;
   justify-content: flex-end;

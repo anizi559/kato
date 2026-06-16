@@ -1324,7 +1324,7 @@ const resourceConfigs = {
       ["协议权限", "protocols"], ["订阅状态", "subscription"], ["创建时间", "createdAt"],
     ],
     relationRows: [
-      ["可见节点", "nodes"], ["订阅入口", () => "sub-hk-01"], ["配置版本", "configVersion"],
+      ["可见节点", "nodes"], ["订阅入口", () => "-"], ["配置版本", "configVersion"],
     ],
     metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["Hysteria2", "hy2Password"]],
     preview: (row) => `user: ${row.id}\nplan: ${row.plan}\nprotocols: ${row.protocols}\nsubscription: ${row.subscription}\nnodes: ${row.nodes}\ntraffic: ${row.trafficUsed}`,
@@ -1742,6 +1742,60 @@ function buildSummaryCards(resourceData = {}) {
   ];
 }
 
+function buildOverviewTasks(resourceData = {}) {
+  const tasks = [];
+  const pendingAccessNodes = (resourceData["access-nodes"] || []).filter((node) => node.status === "待发布");
+  const offlineAgents = (resourceData.agents || []).filter((agent) => ["离线", "故障", "失败"].includes(agent.status));
+  const degradedSubscriptionEdges = (resourceData["subscription-edges"] || []).filter((edge) => ["降级", "故障"].includes(edge.status));
+  if (pendingAccessNodes.length) {
+    tasks.push({ tone: "warning", title: `${pendingAccessNodes.length} 个访问节点待发布`, meta: "请检查并发布最新配置" });
+  }
+  if (offlineAgents.length) {
+    tasks.push({ tone: "danger", title: `${offlineAgents.length} 个 Agent 异常`, meta: "请检查节点连接状态" });
+  }
+  if (degradedSubscriptionEdges.length) {
+    tasks.push({ tone: "warning", title: `${degradedSubscriptionEdges.length} 个订阅入口降级`, meta: "请检查订阅入口健康状态" });
+  }
+  return tasks;
+}
+
+function buildOverviewEvents(resourceData = {}) {
+  return (resourceData.config || []).slice(0, 3).map((item) => ({
+    version: item.version || item.name || "-",
+    title: item.status || "未知状态",
+    meta: item.publishedAt || item.appliedAt || item.createdAt || "-"
+  }));
+}
+
+function buildOverviewHealthTiles(resourceData = {}) {
+  return (resourceData.agents || []).map((agent) => ({
+    name: agent.name || agent.id,
+    status: agent.status || "未知",
+    tone: getStatusTone(agent.status),
+    meta: agent.heartbeat || agent.lastSeen || "-"
+  }));
+}
+
+function uniqueRowValues(rows = [], key) {
+  const values = rows
+    .map((row) => row?.[key])
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
+    .map((value) => String(value));
+  return [...new Set(values)];
+}
+
+function resolveRuntimeResourceConfig(config, rows = []) {
+  const segments = config.segmentKey
+    ? [{ label: "All", value: "All" }, ...uniqueRowValues(rows, config.segmentKey).map((value) => ({ label: value, value }))]
+    : [{ label: "All", value: "All" }];
+  const filters = (config.filters || []).map((filter) => ({
+    ...filter,
+    options: ["全部", ...uniqueRowValues(rows, filter.key)],
+  }));
+  return { ...config, segments, filters };
+}
+
 function resourceRecordId(row) {
   return row?.raw?.id || row?.resourceId || row?.id;
 }
@@ -2101,7 +2155,7 @@ function adaptAgent(agent, context) {
 }
 
 function adaptConfigReleases(summary, rawAgents = []) {
-  if (!summary) return configReleases;
+  if (!summary) return demoModeEnabled ? configReleases : [];
   const onlineAgents = rawAgents.filter((agent) => agent.status === "online").length;
   return [
     {
@@ -2125,7 +2179,7 @@ const resourceFormConfigs = {
   users: {
     label: "用户",
     fields: [
-      { name: "name", label: "用户名", type: "text", defaultValue: "new-user" },
+      { name: "name", label: "用户名", type: "text", defaultValue: "" },
       { name: "email", label: "邮箱", type: "text", defaultValue: "" },
       { name: "planId", label: "套餐", type: "select", options: (data) => optionRows(data.plans), defaultValue: (data) => selectDefault(data.plans) },
       { name: "expiresAt", label: "到期时间", type: "text", defaultValue: "" },
@@ -2155,7 +2209,7 @@ const resourceFormConfigs = {
   plans: {
     label: "套餐",
     fields: [
-      { name: "name", label: "套餐名称", type: "text", defaultValue: "标准版" },
+      { name: "name", label: "套餐名称", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量额度 GiB", type: "number", defaultValue: 500 },
       { name: "durationDays", label: "有效期天数", type: "number", defaultValue: 90 },
       { name: "allowedProtocols", label: "允许协议", type: "text", defaultValue: "vless-reality,hysteria2" },
@@ -2185,12 +2239,12 @@ const resourceFormConfigs = {
   "proxy-nodes": {
     label: "代理节点",
     fields: [
-      { name: "name", label: "节点名称", type: "text", defaultValue: "proxy-hk-new" },
+      { name: "name", label: "节点名称", type: "text", defaultValue: "" },
       { name: "publicHost", label: "公网主机", type: "text", defaultValue: "" },
       { name: "publicIp", label: "公网 IP", type: "text", defaultValue: "" },
       { name: "privateIp", label: "内网 IP", type: "text", defaultValue: "" },
       { name: "entryDomain", label: "入口域名", type: "text", defaultValue: "" },
-      { name: "region", label: "区域", type: "text", defaultValue: "Hong Kong" },
+      { name: "region", label: "区域", type: "text", defaultValue: "" },
       { name: "provider", label: "云厂商", type: "text", defaultValue: "" },
       { name: "capabilities", label: "运行时能力", type: "text", defaultValue: "xray,hysteria2" },
       { name: "enabled", label: "启用节点", type: "checkbox", defaultValue: true },
@@ -2221,7 +2275,7 @@ const resourceFormConfigs = {
   inbounds: {
     label: "协议入站",
     fields: [
-      { name: "name", label: "入站名称", type: "text", defaultValue: "HK VLESS 443" },
+      { name: "name", label: "入站名称", type: "text", defaultValue: "" },
       { name: "proxyNodeId", label: "代理节点", type: "select", options: (data) => optionRows(data["proxy-nodes"]), defaultValue: (data) => selectDefault(data["proxy-nodes"]) },
       { name: "protocol", label: "协议", type: "select", defaultValue: "vless-reality", options: [{ label: "VLESS REALITY", value: "vless-reality" }, { label: "Hysteria2", value: "hysteria2" }] },
       { name: "port", label: "端口", type: "number", defaultValue: 443 },
@@ -2253,11 +2307,11 @@ const resourceFormConfigs = {
   "transit-relays": {
     label: "中转服务器",
     fields: [
-      { name: "name", label: "中转名称", type: "text", defaultValue: "relay-hk-new" },
+      { name: "name", label: "中转名称", type: "text", defaultValue: "" },
       { name: "publicHost", label: "公网主机", type: "text", defaultValue: "" },
       { name: "publicIp", label: "公网 IP", type: "text", defaultValue: "" },
       { name: "privateIp", label: "内网 IP", type: "text", defaultValue: "" },
-      { name: "region", label: "区域", type: "text", defaultValue: "Hong Kong" },
+      { name: "region", label: "区域", type: "text", defaultValue: "" },
       { name: "provider", label: "云厂商", type: "text", defaultValue: "" },
       { name: "enabled", label: "启用中转", type: "checkbox", defaultValue: true },
     ],
@@ -2284,7 +2338,7 @@ const resourceFormConfigs = {
   "access-nodes": {
     label: "访问节点",
     fields: [
-      { name: "name", label: "访问节点名称", type: "text", defaultValue: "HK Direct 443" },
+      { name: "name", label: "访问节点名称", type: "text", defaultValue: "" },
       { name: "inboundId", label: "协议入站", type: "select", options: (data) => optionRows(data.inbounds), defaultValue: (data) => selectDefault(data.inbounds) },
       { name: "host", label: "订阅展示主机", type: "text", defaultValue: "" },
       { name: "port", label: "展示端口", type: "number", defaultValue: "" },
@@ -2308,7 +2362,7 @@ const resourceFormConfigs = {
   "relay-rules": {
     label: "转发规则",
     fields: [
-      { name: "name", label: "规则名称", type: "text", defaultValue: "relay-rule-new" },
+      { name: "name", label: "规则名称", type: "text", defaultValue: "" },
       { name: "relayId", label: "中转服务器", type: "select", options: (data) => optionRows(data["transit-relays"]), defaultValue: (data) => selectDefault(data["transit-relays"]) },
       { name: "inboundId", label: "目标入站", type: "select", options: (data) => optionRows(data.inbounds), defaultValue: (data) => selectDefault(data.inbounds) },
       { name: "entryPort", label: "入口端口", type: "number", defaultValue: 8443 },
@@ -2640,6 +2694,16 @@ function VisibleCheck() {
   );
 }
 
+function EmptyPanel({ title, description, compact = false }) {
+  return (
+    <div className={compact ? "empty-panel empty-panel--compact" : "empty-panel"}>
+      <IconFileCode size={24} stroke={1.8} />
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </div>
+  );
+}
+
 function LinkText({ children }) {
   return (
     <a className="resource-link" href="#resource">
@@ -2707,18 +2771,19 @@ function MobileNav({ activeSection, onSelect }) {
 function TopBar({ onPublish, apiStatus, adminUser, onLogout }) {
   const tone = apiStatus?.mode === "connected" ? "success" : apiStatus?.mode === "error" ? "danger" : "warning";
   const label = apiStatus?.message || "等待连接";
+  const configVersion = apiStatus?.summary?.version ? `Config v${apiStatus.summary.version}` : "Config v1";
 
   return (
     <header className="topbar">
       <div className="topbar__status">
         <span className="topbar__item"><StatusDot tone={tone} />{label}</span>
         <span className="topbar__divider" />
-        <span className="topbar__item"><IconFileCode size={17} stroke={1.8} />Config v12</span>
+        <span className="topbar__item"><IconFileCode size={17} stroke={1.8} />{configVersion}</span>
         <span className="topbar__divider" />
-        <span className="topbar__item"><StatusDot tone="warning" />3 个待处理变更</span>
+        <span className="topbar__item"><StatusDot tone="success" />0 个待处理变更</span>
       </div>
       <div className="topbar__actions">
-        <button className="button button--warning" type="button">待发布</button>
+        <button className="button button--secondary" type="button">0 待发布</button>
         <button className="button button--primary" type="button" onClick={onPublish}>发布配置</button>
         <button className="admin-menu" type="button" onClick={onLogout}>
           <IconUser size={18} stroke={1.8} />
@@ -2938,9 +3003,11 @@ function Pagination({ total }) {
   );
 }
 
-function ResourcePage({ config, state, rows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, onCloseInspector, onEditSelected, onDeleteSelected }) {
+function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, onCloseInspector, onEditSelected, onDeleteSelected }) {
   const PrimaryIcon = config.primaryIcon || IconPlus;
   const SecondaryIcon = config.secondaryIcon || IconPlus;
+  const hasRows = rows.length > 0;
+  const isEmptyCollection = totalRows === 0;
 
   return (
     <div className="content-grid">
@@ -2973,17 +3040,32 @@ function ResourcePage({ config, state, rows, selectedItem, canWrite, onSelect, o
           setSegment={state.setSegment}
           filters={state.filters}
         />
-        <ResourceTable ariaLabel={config.tableLabel} rows={rows} columns={config.columns} selectedId={selectedItem?.id} onSelect={onSelect} />
-        <Pagination total={rows.length} />
+        {hasRows ? (
+          <>
+            <ResourceTable ariaLabel={config.tableLabel} rows={rows} columns={config.columns} selectedId={selectedItem?.id} onSelect={onSelect} />
+            <Pagination total={rows.length} />
+          </>
+        ) : (
+          <EmptyPanel
+            title={isEmptyCollection ? `暂无${config.title}` : "没有匹配结果"}
+            description={isEmptyCollection ? "当前还没有任何记录，点击右上角按钮创建第一条。" : "请调整搜索关键词或筛选条件后重试。"}
+          />
+        )}
       </section>
-      <GenericInspector
-        item={selectedItem}
-        config={config}
-        canWrite={canWrite}
-        onEdit={() => onEditSelected(selectedItem)}
-        onDelete={() => onDeleteSelected(selectedItem)}
-        onClose={onCloseInspector}
-      />
+      {selectedItem ? (
+        <GenericInspector
+          item={selectedItem}
+          config={config}
+          canWrite={canWrite}
+          onEdit={() => onEditSelected(selectedItem)}
+          onDelete={() => onDeleteSelected(selectedItem)}
+          onClose={onCloseInspector}
+        />
+      ) : (
+        <aside className="inspector inspector--empty">
+          <EmptyPanel compact title="暂无详情" description="选择一条记录后，这里会显示资源详情。" />
+        </aside>
+      )}
     </div>
   );
 }
@@ -2994,7 +3076,8 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
   const [filterValues, setFilterValues] = useState(() => {
     return (config.filters || []).reduce((values, filter) => ({ ...values, [filter.key]: "全部" }), {});
   });
-  const rows = dataRows || config.data;
+  const rows = dataRows || [];
+  const runtimeConfig = useMemo(() => resolveRuntimeResourceConfig(config, rows), [config, rows]);
   const canWrite = writableSections.has(sectionId);
   const [selectedId, setSelectedId] = useState(rows[0]?.id || "");
 
@@ -3004,7 +3087,13 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
     }
   }, [rows, selectedId]);
 
-  const toolbarFilters = (config.filters || []).map((filter) => ({
+  useEffect(() => {
+    if (!runtimeConfig.segments.some((item) => item.value === segment)) {
+      setSegment("All");
+    }
+  }, [runtimeConfig.segments, segment]);
+
+  const toolbarFilters = (runtimeConfig.filters || []).map((filter) => ({
     ...filter,
     value: filterValues[filter.key] || "全部",
     onChange: (value) => setFilterValues((current) => ({ ...current, [filter.key]: value })),
@@ -3012,28 +3101,29 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
-      const searchText = (config.searchKeys || ["id", "name", "summary"])
+      const searchText = (runtimeConfig.searchKeys || ["id", "name", "summary"])
         .map((key) => String(row[key] ?? ""))
         .join(" ")
         .toLowerCase();
       const matchesSearch = !query || searchText.includes(query.toLowerCase());
-      const matchesSegment = segment === "All" || (config.segmentKey ? String(row[config.segmentKey]) === segment : true);
-      const matchesFilters = (config.filters || []).every((filter) => {
+      const matchesSegment = segment === "All" || (runtimeConfig.segmentKey ? String(row[runtimeConfig.segmentKey]) === segment : true);
+      const matchesFilters = (runtimeConfig.filters || []).every((filter) => {
         const value = filterValues[filter.key] || "全部";
         if (value === "全部") return true;
         return String(row[filter.key]) === value;
       });
       return matchesSearch && matchesSegment && matchesFilters;
     });
-  }, [config, rows, query, segment, filterValues]);
+  }, [runtimeConfig, rows, query, segment, filterValues]);
 
   const selectedItem = filteredRows.find((item) => item.id === selectedId) || filteredRows[0];
 
   return (
     <ResourcePage
-      config={config}
+      config={runtimeConfig}
       state={{ query, setQuery, segment, setSegment, filters: toolbarFilters }}
       rows={filteredRows}
+      totalRows={rows.length}
       selectedItem={selectedItem}
       canWrite={canWrite}
       onSelect={setSelectedId}
@@ -3065,6 +3155,9 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
 
 function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) {
   const summaryCards = buildSummaryCards(resourceData);
+  const tasks = buildOverviewTasks(resourceData);
+  const events = buildOverviewEvents(resourceData);
+  const healthTiles = buildOverviewHealthTiles(resourceData);
   const configVersion = apiStatus?.summary?.version ? `v${apiStatus.summary.version}` : "v1";
   const updatedAt = apiStatus?.summary?.configUpdatedAt ? isoText(apiStatus.summary.configUpdatedAt) : "-";
   return (
@@ -3105,9 +3198,15 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
               <button className="subtle-link" type="button" onClick={() => setActiveSection("alerts")}>查看告警 <IconExternalLink size={14} stroke={1.9} /></button>
             </div>
             <div className="task-list">
-              <button type="button"><StatusDot tone="warning" /><strong>3 项配置待发布</strong><span>JP 节点、中转和 Access Node 已创建</span></button>
-              <button type="button"><StatusDot tone="danger" /><strong>1 个 Agent 离线</strong><span>agent-proxy-us-legacy 使用 last known good</span></button>
-              <button type="button"><StatusDot tone="warning" /><strong>订阅入口降级</strong><span>sub-sg-01 成功率 96.20%</span></button>
+              {tasks.length ? tasks.map((task) => (
+                <button type="button" key={task.title}>
+                  <StatusDot tone={task.tone} />
+                  <strong>{task.title}</strong>
+                  <span>{task.meta}</span>
+                </button>
+              )) : (
+                <EmptyPanel compact title="暂无待处理事项" description="创建资源或 Agent 上报异常后，这里会显示待处理内容。" />
+              )}
             </div>
           </section>
 
@@ -3117,9 +3216,15 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
               <button className="subtle-link" type="button" onClick={() => setActiveSection("config")}>发布记录 <IconExternalLink size={14} stroke={1.9} /></button>
             </div>
             <div className="event-list">
-              <div><span>v12</span><strong>5 / 5 Agent 已应用</strong><small>2026-06-16 09:42</small></div>
-              <div><span>v13</span><strong>等待管理员发布</strong><small>3 项变更</small></div>
-              <div><span>v10</span><strong>1 个旧 Agent 超时</strong><small>已保留失败原因</small></div>
+              {events.length ? events.map((event) => (
+                <div key={`${event.version}-${event.meta}`}>
+                  <span>{event.version}</span>
+                  <strong>{event.title}</strong>
+                  <small>{event.meta}</small>
+                </div>
+              )) : (
+                <EmptyPanel compact title="暂无配置应用记录" description="发布配置后，这里会显示最近应用结果。" />
+              )}
             </div>
           </section>
         </div>
@@ -3130,13 +3235,15 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
             <button className="subtle-link" type="button" onClick={() => setActiveSection("health")}>健康检查 <IconExternalLink size={14} stroke={1.9} /></button>
           </div>
           <div className="resource-health-grid">
-            {["proxy-hk-01", "relay-hk-01", "fe-hk-01", "sub-hk-01", "backend-core-hk", "proxy-us-legacy"].map((name, index) => (
-              <button className="health-tile" type="button" key={name}>
-                <StatusDot tone={index === 5 ? "danger" : "success"} />
-                <strong>{name}</strong>
-                <span>{index === 5 ? "离线 · 容灾中" : "在线 · 心跳正常"}</span>
+            {healthTiles.length ? healthTiles.map((tile) => (
+              <button className="health-tile" type="button" key={tile.name}>
+                <StatusDot tone={tile.tone} />
+                <strong>{tile.name}</strong>
+                <span>{tile.status} · {tile.meta}</span>
               </button>
-            ))}
+            )) : (
+              <EmptyPanel compact title="暂无健康数据" description="Agent 接入并完成心跳后，这里会显示资源健康状态。" />
+            )}
           </div>
         </section>
       </section>
@@ -3199,7 +3306,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
 
           <section className="setting-panel">
             <h2>Agent 兼容</h2>
-            <label><span>最低版本</span><input defaultValue="0.3.6" /></label>
+            <label><span>最低版本</span><input defaultValue="0.3.7" /></label>
             <label><span>心跳超时</span><select defaultValue="180s"><option>180s</option><option>300s</option></select></label>
             <label><span>运行时校验</span><select defaultValue="strict"><option value="strict">strict</option><option value="warn">warn only</option></select></label>
           </section>
@@ -3454,7 +3561,7 @@ function CreateRelayDrawer({ open, onClose, resourceData, onSubmit }) {
     transitRelayId: "",
     entryPort: 8443,
     transport: "tcp",
-    name: "HK Relay Entry",
+    name: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -3466,7 +3573,7 @@ function CreateRelayDrawer({ open, onClose, resourceData, onSubmit }) {
       transitRelayId: selectDefault(resourceData["transit-relays"]),
       entryPort: 8443,
       transport: "tcp",
-      name: "HK Relay Entry",
+      name: "",
     });
     setError("");
     setSubmitting(false);

@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Kato 一键安装脚本
+# 适用系统：Debian / Ubuntu，且需要 systemd。
+# 常用方式：
+#   sudo ./install.sh --role backend-core --repo-url https://github.com/anizi559/kato.git
+#   sudo ./install.sh --role admin-ui --repo-url https://github.com/anizi559/kato.git --backend-url http://后端IP:8080
+#
+# 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
+
 APP_NAME="kato"
-APP_VERSION="0.3.0"
+APP_VERSION="0.3.1"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_NODE_VERSION="22.16.0"
 DEFAULT_REALM_VERSION="v2.9.4"
@@ -32,48 +40,51 @@ binary_validation="${KATO_BINARY_VALIDATION:-false}"
 
 usage() {
   cat <<USAGE
-Kato Control Plane installer ${APP_VERSION}
+Kato 控制面板一键安装脚本 ${APP_VERSION}
 
-Usage:
+用法：
   sudo ./install.sh --role <role> [options]
 
-Roles:
-  backend-core       Panel backend API and database store
-  admin-ui           Panel frontend UI served by nginx
-  frontend-edge      Frontend edge agent placeholder
-  subscription-edge  Subscription edge agent placeholder
-  proxy-node         Proxy-node agent plus Xray/Hysteria2 runtime binaries
-  transit-relay      Transit-relay agent plus Realm runtime binary
+安装角色：
+  backend-core       面板后端 API 和本地数据库
+  admin-ui           面板前端网页，由 nginx 提供访问
+  frontend-edge      前端入口服务器占位角色
+  subscription-edge  订阅入口服务器占位角色
+  proxy-node         代理节点 Agent，并安装 Xray / Hysteria2
+  transit-relay      中转服务器 Agent，并安装 Realm
 
-Common options:
-  --role <role>                  Role to install. Aliases: backend, frontend, proxy, relay
-  --source-dir <path>            Source tree to install from
-  --repo-url <url>               Clone source when no local source tree is available
-  --install-root <path>          Install root, default: ${DEFAULT_INSTALL_ROOT}
+通用参数：
+  --role <role>                  要安装的角色。也可写 backend / frontend / proxy / relay
+  --source-dir <path>            使用本机已有源码目录安装
+  --repo-url <url>               当前目录没有源码时，从这个 Git 仓库拉取源码
+  --install-root <path>          安装目录，默认：${DEFAULT_INSTALL_ROOT}
   --apt-mirror <none|tuna|ustc|aliyun>
-  --skip-deps                    Do not install OS packages or Node.js
-  --skip-source-sync             Use current source location directly
-  --non-interactive              Fail instead of prompting
+                                  切换 apt 软件源；国内服务器建议 tuna 或 aliyun
+  --skip-deps                    跳过系统依赖和 Node.js 安装
+  --skip-source-sync             直接使用当前源码目录，不复制到安装目录
+  --non-interactive              非交互模式；缺少必要参数时直接失败，不弹菜单
 
-Backend options:
-  --listen-host <host>           Backend listen host, default: 0.0.0.0
-  --listen-port <port>           Backend listen port, default: 8080
-  --admin-token <token>          Backend admin token. Generated when omitted
-  --admin-cors-origins <origins> Comma-separated allowed frontend origins
+后端参数：
+  --listen-host <host>           后端监听地址，默认：0.0.0.0
+  --listen-port <port>           后端监听端口，默认：8080
+  --admin-token <token>          后端管理员密钥；不填会自动生成
+  --admin-cors-origins <origins> 允许访问后端的前端地址，多个地址用英文逗号分隔
 
-Admin UI options:
-  --backend-url <url>            API base URL embedded into the frontend build
-  --admin-ui-port <port>         nginx listen port, default: 80
+前端参数：
+  --backend-url <url>            前端连接的后端 API 地址，会写入前端构建结果
+  --admin-ui-port <port>         nginx 对外监听端口，默认：80
 
-Agent options:
-  --backend-url <url>            Backend API URL, required for agent roles
-  --bootstrap-token <token>      One-time bootstrap token, required for first agent registration
-  --agent-name <name>            Agent display name
+Agent / 节点参数：
+  --backend-url <url>            后端 API 地址；安装节点角色时必须填写
+  --bootstrap-token <token>      节点首次注册用的一次性 token
+  --agent-name <name>            节点显示名称，便于在面板里识别
   --agent-auto-start <true|false>
+                                  同步配置后是否自动启动代理运行进程
   --binary-validation <true|false>
-  --skip-runtime-binaries        Do not install Xray/Hysteria2/Realm
+                                  是否在应用配置前调用二进制做配置校验
+  --skip-runtime-binaries        不安装 Xray / Hysteria2 / Realm 等运行程序
 
-Examples:
+常用示例：
   sudo ./install.sh --role backend-core --listen-port 8080
   sudo ./install.sh --role admin-ui --backend-url http://156.226.168.215:8080
   sudo ./install.sh --role proxy-node --backend-url http://panel:8080 --bootstrap-token boot_xxx
@@ -85,11 +96,11 @@ log() {
 }
 
 warn() {
-  printf '[%s] WARN: %s\n' "$(date '+%H:%M:%S')" "$*" >&2
+  printf '[%s] 警告：%s\n' "$(date '+%H:%M:%S')" "$*" >&2
 }
 
 die() {
-  printf 'ERROR: %s\n' "$*" >&2
+  printf '错误：%s\n' "$*" >&2
   exit 1
 }
 
@@ -184,7 +195,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      die "Unknown argument: $1"
+      die "未知参数：$1"
       ;;
   esac
 done
@@ -218,19 +229,19 @@ normalize_role() {
 prompt_role() {
   if [[ "$non_interactive" == "true" || ! -t 0 ]]; then
     usage >&2
-    die "Missing --role"
+    die "缺少 --role 参数，请指定要安装的角色"
   fi
 
   cat <<'MENU'
-Select install role:
-  1) backend-core       Panel backend API
-  2) admin-ui           Panel frontend UI
-  3) frontend-edge      Frontend edge agent
-  4) subscription-edge  Subscription edge agent
-  5) proxy-node         Proxy-node agent
-  6) transit-relay      Transit-relay agent
+请选择要安装的服务器角色：
+  1) backend-core       面板后端 API 和数据库
+  2) admin-ui           面板前端网页
+  3) frontend-edge      前端入口服务器
+  4) subscription-edge  订阅入口服务器
+  5) proxy-node         代理节点服务器
+  6) transit-relay      中转服务器
 MENU
-  read -r -p "Role number: " choice
+  read -r -p "请输入序号： " choice
   case "$choice" in
     1) role="backend-core" ;;
     2) role="admin-ui" ;;
@@ -238,7 +249,7 @@ MENU
     4) role="subscription-edge" ;;
     5) role="proxy-node" ;;
     6) role="transit-relay" ;;
-    *) die "Unsupported role selection: $choice" ;;
+    *) die "不支持的角色序号：$choice" ;;
   esac
 }
 
@@ -248,18 +259,18 @@ fi
 
 if ! role="$(normalize_role "$role")"; then
   usage >&2
-  die "Unsupported role: $role"
+  die "不支持的安装角色：$role"
 fi
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
-    die "Please run as root, for example: sudo ./install.sh --role ${role}"
+    die "请用 root 权限运行，例如：sudo ./install.sh --role ${role}"
   fi
 }
 
 require_linux() {
-  [[ "$(uname -s)" == "Linux" ]] || die "This installer currently supports Linux servers only"
-  [[ -d /run/systemd/system ]] || die "systemd is required"
+  [[ "$(uname -s)" == "Linux" ]] || die "当前安装脚本只支持 Linux 服务器"
+  [[ -d /run/systemd/system ]] || die "当前系统缺少 systemd，暂时无法安装"
 }
 
 load_os_release() {
@@ -302,7 +313,7 @@ apt_updated="false"
 
 apt_update_once() {
   if [[ "$apt_updated" == "false" ]]; then
-    log "Updating apt package index"
+    log "正在更新 apt 软件包索引"
     DEBIAN_FRONTEND=noninteractive apt-get update
     apt_updated="true"
   fi
@@ -319,7 +330,7 @@ install_packages() {
     return
   fi
   apt_update_once
-  log "Installing packages: ${missing[*]}"
+  log "正在安装系统依赖：${missing[*]}"
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
 }
 
@@ -342,7 +353,7 @@ configure_apt_mirror() {
       ubuntu_uri="https://mirrors.aliyun.com/ubuntu"
       ;;
     *)
-      die "Unsupported apt mirror: $apt_mirror"
+      die "不支持的 apt 镜像源：$apt_mirror，可选 none / tuna / ustc / aliyun"
       ;;
   esac
 
@@ -361,7 +372,7 @@ configure_apt_mirror() {
   fi
 
   if [[ "$OS_ID" == "debian" ]]; then
-    [[ -n "$OS_CODENAME" ]] || die "Cannot detect Debian codename for apt mirror"
+    [[ -n "$OS_CODENAME" ]] || die "无法识别 Debian 版本代号，不能自动切换 apt 镜像源"
     cat >/etc/apt/sources.list.d/kato-debian.sources <<EOF
 Types: deb
 URIs: ${debian_uri}
@@ -376,7 +387,7 @@ Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EOF
   elif [[ "$OS_ID" == "ubuntu" ]]; then
-    [[ -n "$OS_CODENAME" ]] || die "Cannot detect Ubuntu codename for apt mirror"
+    [[ -n "$OS_CODENAME" ]] || die "无法识别 Ubuntu 版本代号，不能自动切换 apt 镜像源"
     cat >/etc/apt/sources.list.d/kato-ubuntu.sources <<EOF
 Types: deb
 URIs: ${ubuntu_uri}
@@ -391,10 +402,10 @@ Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 EOF
   else
-    die "Apt mirror rewrite supports Debian/Ubuntu only, detected: ${OS_ID}"
+    die "自动切换 apt 镜像源只支持 Debian / Ubuntu，当前识别到：${OS_ID}"
   fi
   apt_updated="false"
-  log "Apt mirror configured: ${apt_mirror}"
+  log "apt 镜像源已切换为：${apt_mirror}"
 }
 
 ensure_base_dependencies() {
@@ -404,7 +415,7 @@ ensure_base_dependencies() {
       install_packages ca-certificates curl git rsync tar xz-utils openssl lsof procps jq unzip libcap2-bin
       ;;
     *)
-      die "Unsupported Linux distribution: ${OS_ID}. Debian/Ubuntu are currently supported."
+      die "不支持的 Linux 发行版：${OS_ID}。当前只支持 Debian / Ubuntu"
       ;;
   esac
 }
@@ -426,7 +437,7 @@ node_arch() {
       printf 'arm64'
       ;;
     *)
-      die "Unsupported Node.js architecture: $(uname -m)"
+      die "不支持的 Node.js 架构：$(uname -m)"
       ;;
   esac
 }
@@ -435,12 +446,12 @@ install_node() {
   local managed_node
   managed_node="$(node_bin)"
   if node_major_ok "$managed_node"; then
-    log "Using managed Node.js: $("$managed_node" -v)"
+    log "使用 Kato 已安装的 Node.js：$("$managed_node" -v)"
     return
   fi
 
   if command_exists node && command_exists npm && node_major_ok "$(command -v node)"; then
-    log "Using system Node.js: $(node -v)"
+    log "使用系统已有 Node.js：$(node -v)"
     mkdir -p "$install_root/node/bin"
     ln -sfn "$(command -v node)" "$install_root/node/bin/node"
     ln -sfn "$(command -v npm)" "$install_root/node/bin/npm"
@@ -450,14 +461,14 @@ install_node() {
     return
   fi
 
-  [[ "$skip_deps" != "true" ]] || die "Node.js >= 22 is required and --skip-deps was provided"
+  [[ "$skip_deps" != "true" ]] || die "需要 Node.js 22 或更高版本，但你使用了 --skip-deps，脚本无法自动安装"
 
   local arch asset url tmp
   arch="$(node_arch)"
   asset="node-v${node_version}-linux-${arch}"
   url="https://nodejs.org/dist/v${node_version}/${asset}.tar.xz"
   tmp="$(mktemp -d)"
-  log "Installing Node.js v${node_version} (${arch})"
+  log "正在安装 Node.js v${node_version}（${arch}）"
   curl -fsSL --retry 3 --connect-timeout 20 -o "${tmp}/${asset}.tar.xz" "$url"
   mkdir -p "$install_root"
   rm -rf "${install_root}/${asset}"
@@ -467,7 +478,7 @@ install_node() {
   ln -sfn "${install_root}/node/bin/npm" /usr/local/bin/npm
   ln -sfn "${install_root}/node/bin/npx" /usr/local/bin/npx
   rm -rf "$tmp"
-  log "Node.js installed: $("${install_root}/node/bin/node" -v)"
+  log "Node.js 安装完成：$("${install_root}/node/bin/node" -v)"
 }
 
 looks_like_source_tree() {
@@ -481,7 +492,7 @@ resolve_source_dir() {
 
   if [[ -n "$source_dir" ]]; then
     source_dir="$(cd "$source_dir" && pwd)"
-    looks_like_source_tree "$source_dir" || die "Invalid --source-dir: $source_dir"
+    looks_like_source_tree "$source_dir" || die "--source-dir 指向的目录不是有效的 Kato 源码目录：$source_dir"
     return
   fi
 
@@ -503,18 +514,18 @@ resolve_source_dir() {
   if [[ -n "$repo_url" ]]; then
     source_dir="$(target_source_dir)"
     if [[ -d "$source_dir/.git" ]]; then
-      log "Updating source from ${repo_url}"
+      log "正在从仓库更新源码：${repo_url}"
       git -C "$source_dir" fetch --all --prune
       git -C "$source_dir" pull --ff-only
     else
-      log "Cloning source from ${repo_url}"
+      log "正在从仓库克隆源码：${repo_url}"
       rm -rf "$source_dir"
       git clone "$repo_url" "$source_dir"
     fi
     return
   fi
 
-  die "Cannot locate source tree. Run from the project root, pass --source-dir, or pass --repo-url."
+  die "找不到 Kato 源码。请在项目根目录运行，或传入 --source-dir，或传入 --repo-url"
 }
 
 sync_source_tree() {
@@ -523,11 +534,11 @@ sync_source_tree() {
   mkdir -p "$install_root"
 
   if [[ "$skip_source_sync" == "true" || "$(cd "$source_dir" && pwd)" == "$(mkdir -p "$target" && cd "$target" && pwd)" ]]; then
-    log "Using source tree: $source_dir"
+    log "使用源码目录：$source_dir"
     return
   fi
 
-  log "Syncing source tree to ${target}"
+  log "正在同步源码到安装目录：${target}"
   mkdir -p "$target"
   rsync -a --delete \
     --exclude '.git' \
@@ -543,7 +554,7 @@ sync_source_tree() {
 
 ensure_kato_user_and_dirs() {
   if ! id -u kato >/dev/null 2>&1; then
-    log "Creating system user: kato"
+    log "正在创建系统用户：kato"
     useradd --system --home /var/lib/kato --shell /usr/sbin/nologin kato
   fi
   install -d -m 0755 -o root -g root "$install_root"
@@ -584,6 +595,14 @@ write_backend_config() {
   BACKEND_CORS_ORIGINS="$admin_cors_origins" \
   "$install_root/node/bin/node" <<'NODE' >"$config_path"
 const config = {
+  _说明: {
+    用途: "Kato 面板后端配置文件，由安装脚本生成。",
+    host: "后端监听地址。0.0.0.0 表示允许外部服务器访问。",
+    port: "后端监听端口，前端和节点都要连接这个端口。",
+    storePath: "后端本地数据库文件路径，请勿手动删除。",
+    adminToken: "管理员 API 密钥，请妥善保存，不要发给普通用户。",
+    adminCorsOrigins: "允许访问后端 API 的前端地址列表。前后端分离部署时需要包含前端地址。"
+  },
   host: process.env.BACKEND_LISTEN_HOST,
   port: Number(process.env.BACKEND_LISTEN_PORT),
   storePath: process.env.BACKEND_STORE_PATH,
@@ -594,9 +613,14 @@ process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
 NODE
 
   cat >"$env_path" <<EOF
+# Kato 面板后端环境变量文件，由安装脚本生成。
+# 修改后需要执行：systemctl restart kato-backend-core
 NODE_ENV=production
+# 后端 JSON 配置文件路径
 BACKEND_CONFIG=${config_path}
+# 管理员 API 密钥。请妥善保存，不要发给普通用户。
 BACKEND_ADMIN_TOKEN=${admin_token}
+# 允许访问后端 API 的前端地址，多个地址用英文逗号分隔。
 BACKEND_ADMIN_CORS_ORIGINS=${admin_cors_origins}
 EOF
   chown root:kato "$config_path" "$env_path"
@@ -611,11 +635,11 @@ write_systemd_service() {
 }
 
 install_backend_core() {
-  log "Installing backend-core"
+  log "正在安装面板后端 backend-core"
   write_backend_config
 
   write_systemd_service "kato-backend-core" "[Unit]
-Description=Kato backend core
+Description=Kato 面板后端服务
 After=network-online.target
 Wants=network-online.target
 
@@ -642,9 +666,9 @@ WantedBy=multi-user.target"
   systemctl restart kato-backend-core.service
   wait_for_backend
 
-  log "backend-core installed"
-  log "API URL: http://$(public_ipv4):${listen_port}"
-  log "Admin token saved at /etc/kato/backend-core.env"
+  log "面板后端安装完成"
+  log "后端 API 地址：http://$(public_ipv4):${listen_port}"
+  log "管理员密钥保存位置：/etc/kato/backend-core.env"
 }
 
 wait_for_backend() {
@@ -658,7 +682,7 @@ wait_for_backend() {
     sleep 1
   done
   journalctl -u kato-backend-core.service -n 80 --no-pager >&2 || true
-  die "backend-core health check failed"
+  die "面板后端健康检查失败，请查看上方日志"
 }
 
 install_nginx() {
@@ -667,19 +691,19 @@ install_nginx() {
 }
 
 install_admin_ui() {
-  log "Installing admin-ui"
+  log "正在安装面板前端 admin-ui"
   install_nginx
 
   local app_dir="${source_dir}/apps/admin-ui"
-  [[ -d "$app_dir" ]] || die "admin-ui source not found: $app_dir"
+  [[ -d "$app_dir" ]] || die "找不到面板前端源码目录：$app_dir"
   if [[ -z "$backend_url" ]]; then
     backend_url="http://127.0.0.1:${listen_port}"
   fi
 
-  log "Installing frontend npm dependencies"
+  log "正在安装前端 npm 依赖"
   (cd "$app_dir" && "$install_root/node/bin/npm" ci)
 
-  log "Building admin-ui"
+  log "正在构建面板前端"
   (cd "$app_dir" && VITE_ADMIN_API_BASE_URL="$backend_url" "$install_root/node/bin/npm" run build)
 
   install -d -m 0755 -o root -g root /var/www/kato-admin-ui
@@ -711,7 +735,7 @@ EOF
   nginx -t
   systemctl reload nginx.service
   curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
-  log "admin-ui installed: http://$(public_ipv4):${admin_ui_port}"
+  log "面板前端安装完成：http://$(public_ipv4):${admin_ui_port}"
 }
 
 github_latest_tag() {
@@ -723,65 +747,65 @@ github_latest_tag() {
 
 install_xray() {
   if command_exists xray; then
-    log "Xray already installed: $(xray version 2>/dev/null | head -n 1 || true)"
+    log "Xray 已安装：$(xray version 2>/dev/null | head -n 1 || true)"
     return
   fi
   local arch asset version tmp
   case "$(uname -m)" in
     x86_64|amd64) asset="Xray-linux-64.zip" ;;
     aarch64|arm64) asset="Xray-linux-arm64-v8a.zip" ;;
-    *) die "Unsupported Xray architecture: $(uname -m)" ;;
+    *) die "不支持的 Xray 架构：$(uname -m)" ;;
   esac
   version="${KATO_XRAY_VERSION:-$(github_latest_tag XTLS/Xray-core)}"
-  [[ -n "$version" ]] || die "Cannot resolve latest Xray version"
+  [[ -n "$version" ]] || die "无法获取最新 Xray 版本"
   tmp="$(mktemp -d)"
-  log "Installing Xray ${version}"
+  log "正在安装 Xray ${version}"
   curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/XTLS/Xray-core/releases/download/${version}/${asset}"
   unzip -q "${tmp}/${asset}" -d "$tmp/xray"
   install -m 0755 "${tmp}/xray/xray" /usr/local/bin/xray
   rm -rf "$tmp"
-  setcap 'cap_net_bind_service=+ep' /usr/local/bin/xray || warn "setcap failed for xray"
+  setcap 'cap_net_bind_service=+ep' /usr/local/bin/xray || warn "给 xray 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
 }
 
 install_hysteria() {
   if command_exists hysteria; then
-    log "Hysteria already installed: $(hysteria version 2>/dev/null | head -n 1 || true)"
+    log "Hysteria 已安装：$(hysteria version 2>/dev/null | head -n 1 || true)"
     return
   fi
   local arch asset version tmp
   case "$(uname -m)" in
     x86_64|amd64) asset="hysteria-linux-amd64" ;;
     aarch64|arm64) asset="hysteria-linux-arm64" ;;
-    *) die "Unsupported Hysteria architecture: $(uname -m)" ;;
+    *) die "不支持的 Hysteria 架构：$(uname -m)" ;;
   esac
   version="${KATO_HYSTERIA_VERSION:-$(github_latest_tag apernet/hysteria)}"
-  [[ -n "$version" ]] || die "Cannot resolve latest Hysteria version"
+  [[ -n "$version" ]] || die "无法获取最新 Hysteria 版本"
   tmp="$(mktemp -d)"
-  log "Installing Hysteria ${version}"
+  log "正在安装 Hysteria ${version}"
   curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/apernet/hysteria/releases/download/${version}/${asset}"
   install -m 0755 "${tmp}/${asset}" /usr/local/bin/hysteria
   rm -rf "$tmp"
-  setcap 'cap_net_bind_service=+ep' /usr/local/bin/hysteria || warn "setcap failed for hysteria"
+  setcap 'cap_net_bind_service=+ep' /usr/local/bin/hysteria || warn "给 hysteria 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
 }
 
 install_realm() {
   if command_exists realm; then
-    log "Realm already installed: $(realm --version 2>&1 | head -n 1 || true)"
+    log "Realm 已安装：$(realm --version 2>&1 | head -n 1 || true)"
     return
   fi
   local asset tmp
   case "$(uname -m)" in
     x86_64|amd64) asset="realm-x86_64-unknown-linux-musl.tar.gz" ;;
     aarch64|arm64) asset="realm-aarch64-unknown-linux-musl.tar.gz" ;;
-    *) die "Unsupported Realm architecture: $(uname -m)" ;;
+    *) die "不支持的 Realm 架构：$(uname -m)" ;;
   esac
   tmp="$(mktemp -d)"
-  log "Installing Realm ${realm_version}"
+  log "正在安装 Realm ${realm_version}"
   curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/zhboner/realm/releases/download/${realm_version}/${asset}"
   tar -xzf "${tmp}/${asset}" -C "$tmp"
   install -m 0755 "${tmp}/realm" /usr/local/bin/realm
   rm -rf "$tmp"
-  setcap 'cap_net_bind_service=+ep' /usr/local/bin/realm || warn "setcap failed for realm"
+  setcap 'cap_net_bind_service=+ep' /usr/local/bin/realm || warn "给 realm 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
 }
 
 install_runtime_binaries() {
@@ -798,12 +822,12 @@ install_runtime_binaries() {
 }
 
 write_agent_config() {
-  [[ -n "$backend_url" ]] || die "--backend-url is required for ${role}"
+  [[ -n "$backend_url" ]] || die "安装 ${role} 必须填写 --backend-url，例如：http://后端IP:8080"
   if [[ -z "$agent_name" ]]; then
     agent_name="${role}-$(hostname -s 2>/dev/null || hostname)"
   fi
   if [[ -z "$bootstrap_token" ]]; then
-    warn "--bootstrap-token not provided. Existing registered agents can still run if /var/lib/kato/agent-state.json exists."
+    warn "没有填写 --bootstrap-token。只有已经注册过、且 /var/lib/kato/agent-state.json 存在的节点才能继续运行"
   fi
 
   local config_path="/etc/kato/agent.json"
@@ -817,6 +841,20 @@ write_agent_config() {
   "$install_root/node/bin/node" <<'NODE' >"$config_path"
 const bool = (value) => String(value).toLowerCase() === "true";
 const config = {
+  _说明: {
+    用途: "Kato 节点 Agent 配置文件，由安装脚本生成。",
+    backendUrl: "面板后端 API 地址，节点会定时连接这个地址拉取最新配置。",
+    role: "当前服务器角色，例如 proxy-node 代理节点，transit-relay 中转服务器。",
+    name: "节点在面板里显示的名称。",
+    bootstrapToken: "首次注册用的一次性 token。注册成功后会写入 statePath，之后可留空。",
+    statePath: "节点注册状态文件，包含 agentId 和密钥，请勿泄露。",
+    lastKnownGoodPath: "最后一次成功获取的配置。后端断联时，节点会用它继续运行。",
+    runtimeDir: "渲染后的 Xray / Hysteria2 / Realm 配置目录。",
+    backupDir: "历史配置备份目录。",
+    logDir: "运行日志目录。",
+    binaryValidation: "是否在应用配置前调用运行程序做配置校验。",
+    autoStart: "同步配置后是否自动启动代理运行进程。"
+  },
   backendUrl: process.env.AGENT_BACKEND_URL,
   role: process.env.AGENT_ROLE,
   name: process.env.AGENT_NAME,
@@ -840,7 +878,10 @@ process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
 NODE
 
   cat >"$env_path" <<EOF
+# Kato 节点 Agent 环境变量文件，由安装脚本生成。
+# 修改后需要执行：systemctl restart kato-agent.timer
 NODE_ENV=production
+# Agent JSON 配置文件路径
 AGENT_CONFIG=${config_path}
 EOF
   chown root:kato "$config_path" "$env_path"
@@ -848,12 +889,12 @@ EOF
 }
 
 install_agent_role() {
-  log "Installing agent role: ${role}"
+  log "正在安装节点 Agent，角色：${role}"
   install_runtime_binaries
   write_agent_config
 
   write_systemd_service "kato-agent" "[Unit]
-Description=Kato agent sync (${role})
+Description=Kato 节点配置同步（${role}）
 After=network-online.target
 Wants=network-online.target
 
@@ -877,7 +918,7 @@ WantedBy=multi-user.target"
 
   cat >/etc/systemd/system/kato-agent.timer <<'EOF'
 [Unit]
-Description=Run Kato agent sync every minute
+Description=每分钟运行 Kato 节点配置同步
 
 [Timer]
 OnBootSec=20s
@@ -894,12 +935,12 @@ EOF
   if [[ -n "$bootstrap_token" || -f /var/lib/kato/agent-state.json ]]; then
     systemctl start kato-agent.service || {
       journalctl -u kato-agent.service -n 80 --no-pager >&2 || true
-      die "agent first sync failed"
+      die "节点 Agent 首次同步失败，请查看上方日志"
     }
   else
-    warn "Skipping first sync because no bootstrap token/state exists"
+    warn "没有 bootstrap token，也没有历史注册状态，已跳过首次同步"
   fi
-  log "agent installed: ${role}"
+  log "节点 Agent 安装完成，角色：${role}"
 }
 
 install_edge_placeholder() {
@@ -908,9 +949,9 @@ install_edge_placeholder() {
   install -d -m 0755 -o root -g root "/var/www/kato-${edge_name}"
   cat >"/var/www/kato-${edge_name}/index.html" <<EOF
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${APP_NAME}</title></head>
-<body><main style="font-family:system-ui,sans-serif;max-width:720px;margin:12vh auto;padding:24px;line-height:1.6"><h1>${APP_NAME}</h1><p>${edge_name} is running.</p></main></body>
+<body><main style="font-family:system-ui,sans-serif;max-width:720px;margin:12vh auto;padding:24px;line-height:1.6"><h1>${APP_NAME}</h1><p>${edge_name} 正在运行。</p></main></body>
 </html>
 EOF
   if [[ "$admin_ui_port" == "80" && -e /etc/nginx/sites-enabled/default ]]; then
@@ -970,11 +1011,11 @@ main() {
       install_agent_role
       ;;
     *)
-      die "Unsupported role: ${role}"
+      die "不支持的安装角色：${role}"
       ;;
   esac
 
-  log "Install finished for role: ${role}"
+  log "安装完成，服务器角色：${role}"
 }
 
 main "$@"

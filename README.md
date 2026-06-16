@@ -2,7 +2,7 @@
 
 自研代理管理系统 monorepo。
 
-当前版本：`0.3.0`
+当前版本：`0.3.1`
 
 已完成阶段：
 
@@ -54,6 +54,14 @@ sudo ./install.sh --role backend-core --apt-mirror tuna
 - `/etc/kato`：服务配置和 token。
 - `/var/lib/kato`：后端数据库、agent 状态和 runtime 配置。
 - `/var/log/kato`：运行日志。
+
+配置文件说明：
+
+- `/etc/kato/backend-core.json`：面板后端配置，安装脚本会自动写入中文 `_说明` 字段。
+- `/etc/kato/backend-core.env`：面板后端环境变量，里面包含管理员密钥，请勿泄露。
+- `/etc/kato/agent.json`：节点 Agent 配置，安装脚本会自动写入中文 `_说明` 字段。
+- `/etc/kato/agent.env`：节点 Agent 环境变量。
+- `configs/*.example.json`：仓库里的示例配置，可复制后改成自己的本地配置。
 
 测试环境工具安装：
 

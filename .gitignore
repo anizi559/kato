@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+.npm-cache/
+data/
+dist/
+coverage/
+*.log
+*.docx
+.~*
+.cargo/
+configs/*.local.json
+tools/bin/
+tools/downloads/
+tools/.crates.toml
+tools/.crates2.json
+!.gitkeep

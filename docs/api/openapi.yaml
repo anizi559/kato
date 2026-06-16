@@ -1,0 +1,293 @@
+openapi: 3.1.0
+info:
+  title: Kato Backend Core API
+  version: 0.3.0
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /health:
+    get:
+      summary: Backend Core health check
+      responses:
+        "200":
+          description: Healthy
+  /version:
+    get:
+      summary: Version and compatibility info
+      responses:
+        "200":
+          description: Version response
+  /api/v1/bootstrap-tokens:
+    post:
+      summary: Create one-time bootstrap token
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum:
+                    - frontend-edge
+                    - subscription-edge
+                    - proxy-node
+                    - transit-relay
+                name:
+                  type: string
+                ttlSeconds:
+                  type: integer
+                  default: 900
+                resourceId:
+                  type:
+                    - string
+                    - "null"
+      responses:
+        "201":
+          description: Bootstrap token created
+  /api/v1/admin/summary:
+    get:
+      summary: Backend Core admin summary
+      security:
+        - AdminToken: []
+      responses:
+        "200":
+          description: Summary response
+  /api/v1/admin/agents:
+    get:
+      summary: List registered agents
+      security:
+        - AdminToken: []
+      responses:
+        "200":
+          description: Agent list
+  /api/v1/admin/{collection}:
+    get:
+      summary: List admin resources
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: "#/components/parameters/AdminCollection"
+      responses:
+        "200":
+          description: Resource list
+    post:
+      summary: Create admin resource
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: "#/components/parameters/AdminCollection"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Resource created
+  /api/v1/admin/{collection}/{id}:
+    get:
+      summary: Get admin resource
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: "#/components/parameters/AdminCollection"
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Resource
+    patch:
+      summary: Update admin resource
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: "#/components/parameters/AdminCollection"
+        - $ref: "#/components/parameters/ResourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Resource updated
+    delete:
+      summary: Delete admin resource
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: "#/components/parameters/AdminCollection"
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Resource deleted
+  /api/v1/admin/access-nodes/relay:
+    post:
+      summary: Create relay access node and linked relay rule
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - inboundId
+                - transitRelayId
+                - entryPort
+              properties:
+                inboundId:
+                  type: string
+                transitRelayId:
+                  type: string
+                entryPort:
+                  type: integer
+                name:
+                  type: string
+                transport:
+                  type: string
+                  enum:
+                    - tcp
+                    - udp
+      responses:
+        "201":
+          description: Relay access node bundle created
+  /api/v1/agents/register:
+    post:
+      summary: Register an Edge or Agent with a bootstrap token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bootstrapToken
+              properties:
+                bootstrapToken:
+                  type: string
+                agentVersion:
+                  type: string
+                hostname:
+                  type: string
+                capabilities:
+                  type: object
+      responses:
+        "201":
+          description: Agent registered
+  /api/v1/agents/{agentId}/heartbeat:
+    post:
+      summary: Agent heartbeat and actual state report
+      security:
+        - AgentBearer: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actualState:
+                  type: object
+      responses:
+        "200":
+          description: Heartbeat accepted
+  /api/v1/agents/{agentId}/desired-state:
+    get:
+      summary: Pull desired state
+      security:
+        - AgentBearer: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Desired state
+          headers:
+            ETag:
+              schema:
+                type: string
+        "304":
+          description: Desired state not modified
+  /api/v1/agents/{agentId}/reports/config-applied:
+    post:
+      summary: Report config application result
+      security:
+        - AgentBearer: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - configVersion
+                - status
+              properties:
+                configVersion:
+                  type: integer
+                status:
+                  type: string
+                appliedAt:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Report accepted
+components:
+  parameters:
+    AdminCollection:
+      name: collection
+      in: path
+      required: true
+      schema:
+        type: string
+        enum:
+          - plans
+          - users
+          - proxy-nodes
+          - node-inbounds
+          - transit-relays
+          - access-nodes
+          - relay-rules
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  securitySchemes:
+    AdminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+    AgentBearer:
+      type: http
+      scheme: bearer

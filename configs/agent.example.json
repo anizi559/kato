@@ -1,0 +1,20 @@
+{
+  "backendUrl": "http://127.0.0.1:8080",
+  "role": "proxy-node",
+  "name": "test-node",
+  "bootstrapToken": "paste-bootstrap-token-once",
+  "statePath": "data/agent-state.json",
+  "lastKnownGoodPath": "data/agent-last-known-good.json",
+  "renderedConfigPath": "data/agent-rendered-config.json",
+  "runtimeDir": "data/runtime",
+  "backupDir": "data/backups",
+  "processDir": "data/processes",
+  "logDir": "data/logs",
+  "binaryValidation": false,
+  "autoStart": false,
+  "binaries": {
+    "xray": "xray",
+    "hysteria": "hysteria",
+    "realm": "tools/bin/realm"
+  }
+}

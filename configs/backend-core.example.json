@@ -1,0 +1,6 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "storePath": "data/backend-core.json",
+  "adminToken": "change-me"
+}

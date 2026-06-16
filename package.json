@@ -1,0 +1,19 @@
+{
+  "name": "kato-control-plane",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Separated proxy control plane, edge gateways, proxy nodes, and transit relays.",
+  "scripts": {
+    "dev:backend": "node apps/backend-core/src/server.js",
+    "dev:admin": "npm --prefix apps/admin-ui run dev -- --port 5173",
+    "build:admin": "npm --prefix apps/admin-ui run build",
+    "dev:agent": "node apps/agent/src/main.js once",
+    "test": "node --test",
+    "panelctl": "node scripts/panelctl.js",
+    "seed:demo": "node scripts/seed-demo.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

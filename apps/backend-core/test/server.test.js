@@ -103,6 +103,39 @@ test("frontend pairing token and admin session protect browser admin api", async
   }
 });
 
+test("frontend token validation supports concurrent admin reads", async () => {
+  const app = await startTestServer();
+  try {
+    await app.store.ensureAdminUser({ username: "admin", password: "secret-pass" });
+    const pairing = await app.store.createFrontendToken({ name: "concurrent-frontend" });
+    const login = await requestJson(app, "/api/v1/auth/login", {
+      method: "POST",
+      headers: {
+        "x-frontend-token": pairing.token
+      },
+      body: {
+        username: "admin",
+        password: "secret-pass"
+      }
+    });
+    assert.equal(login.status, 200);
+
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        requestJson(app, "/api/v1/admin/summary", {
+          headers: {
+            "x-frontend-token": pairing.token,
+            authorization: `Bearer ${login.body.token}`
+          }
+        })
+      )
+    );
+    assert.deepEqual(responses.map((response) => response.status), Array(20).fill(200));
+  } finally {
+    await app.close();
+  }
+});
+
 test("bootstrap token registers an agent and desired state supports etag", async () => {
   const app = await startTestServer();
   try {

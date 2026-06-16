@@ -48,6 +48,7 @@ export class JsonStore {
   constructor(path) {
     this.path = path;
     this.state = emptyState();
+    this.saveQueue = Promise.resolve();
   }
 
   async load() {
@@ -63,8 +64,15 @@ export class JsonStore {
   }
 
   async save() {
+    const nextSave = this.saveQueue.then(() => this.writeState(), () => this.writeState());
+    this.saveQueue = nextSave.catch(() => {});
+    return nextSave;
+  }
+
+  async writeState() {
     await mkdir(dirname(this.path), { recursive: true });
-    const tmpPath = `${this.path}.tmp`;
+    const suffix = `${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
+    const tmpPath = `${this.path}.${suffix}.tmp`;
     await writeFile(tmpPath, JSON.stringify(this.state, null, 2));
     await rename(tmpPath, this.path);
   }

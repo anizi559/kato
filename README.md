@@ -49,6 +49,25 @@ sudo ./install.sh --role proxy-node --backend-url http://<backend-ip>:8080 --boo
 sudo ./install.sh --role transit-relay --backend-url http://<backend-ip>:8080 --bootstrap-token <boot-token>
 ```
 
+前端或公网后端启用 HTTPS 时，交互向导会继续询问域名、Let's Encrypt 邮箱和 Cloudflare API Token。Token 建议只授予目标 Zone 的 `Zone:Read` 与 `DNS:Edit` 权限：
+
+```bash
+sudo ./install.sh --role admin-ui \
+  --backend-url https://api.example.com \
+  --frontend-token <front-token> \
+  --tls-mode letsencrypt \
+  --domain panel.example.com \
+  --acme-email admin@example.com \
+  --cloudflare-api-token <cloudflare-token>
+```
+
+后端有两种推荐模式：
+
+- 内网 / WireGuard 模式：不启用公网 HTTPS，防火墙仅允许受信服务器访问后端端口。
+- 公网模式：启用 HTTPS。安装脚本会让 Backend Core 只监听 `127.0.0.1`，由 Nginx 在 443 提供 HTTPS 反向代理。
+
+证书使用 Cloudflare DNS-01 验证，不依赖 HTTP 验证端口；安装器会启用 Certbot 自动续期，并在续期成功后检查并重载 Nginx。
+
 推荐安装顺序：
 
 1. 先安装 `backend-core`。安装脚本会自动创建空数据库、引导创建管理员账号密码，并输出“前端配对 token”。
@@ -84,6 +103,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/anizi559/kato/main/install.s
 - `/etc/kato/backend-core.json`：面板后端配置，安装脚本会自动写入中文 `_说明` 字段。
 - `/etc/kato/backend-core.env`：面板后端环境变量，里面包含维护 API 密钥，请勿泄露。
 - `/etc/kato/frontend-pairing-token.txt`：后端生成的前端配对 token，用于前端服务器反向代理后端。
+- `/etc/kato/tls.env`：当前服务器的 HTTPS 模式、域名、ACME 邮箱和证书名称。
+- `/etc/kato/cloudflare.ini`：Cloudflare DNS API Token，仅 root 可读，请勿泄露。
+- `/var/backups/kato`：安装器创建的升级前备份，仅 root 可读，可能包含服务密钥。
 - `/etc/kato/agent.json`：节点 Agent 配置，安装脚本会自动写入中文 `_说明` 字段。
 - `/etc/kato/agent.env`：节点 Agent 环境变量。
 - `configs/*.example.json`：仓库里的示例配置，可复制后改成自己的本地配置。

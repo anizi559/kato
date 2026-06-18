@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.4.1"
+APP_VERSION="0.4.2"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -51,6 +51,17 @@ agent_name="${KATO_AGENT_NAME:-}"
 bootstrap_token="${KATO_BOOTSTRAP_TOKEN:-}"
 agent_auto_start="${KATO_AGENT_AUTO_START:-false}"
 binary_validation="${KATO_BINARY_VALIDATION:-false}"
+tls_mode="${KATO_TLS_MODE:-none}"
+public_domain="${KATO_DOMAIN:-}"
+acme_email="${KATO_ACME_EMAIL:-}"
+cloudflare_api_token="${KATO_CLOUDFLARE_API_TOKEN:-}"
+https_port="${KATO_HTTPS_PORT:-443}"
+tls_explicit="${KATO_TLS_MODE:+true}"
+domain_explicit="${KATO_DOMAIN:+true}"
+https_port_explicit="${KATO_HTTPS_PORT:+true}"
+tls_explicit="${tls_explicit:-false}"
+domain_explicit="${domain_explicit:-false}"
+https_port_explicit="${https_port_explicit:-false}"
 
 usage() {
   cat <<USAGE
@@ -82,6 +93,13 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
   --skip-source-sync             直接使用当前源码目录，不复制到安装目录
   --force-runtime-binaries       重新下载 Xray / Hysteria2 / Realm；升级模式默认开启
   --non-interactive              非交互模式；缺少必要参数时直接失败，不弹菜单
+
+HTTPS / 证书参数（前端和后端均可使用）：
+  --tls-mode <none|letsencrypt>  none 表示不配置 HTTPS；letsencrypt 使用 Cloudflare DNS 验证
+  --domain <domain>              对外访问域名，例如 panel.example.com 或 api.example.com
+  --acme-email <email>           Let's Encrypt 到期通知邮箱
+  --cloudflare-api-token <token> Cloudflare DNS API Token，只保存到 root 可读配置文件
+  --https-port <port>            HTTPS 监听端口，默认：443
 
 后端参数：
   --listen-host <host>           后端监听地址，默认：0.0.0.0
@@ -188,6 +206,15 @@ prompt_secret_confirm() {
     fi
     warn "两次输入不一致，请重新输入"
   done
+}
+
+prompt_secret() {
+  local var_name="$1"
+  local question="$2"
+  local value
+  read -r -s -p "${question}: " value
+  echo
+  printf -v "$var_name" '%s' "$value"
 }
 
 prompt_yes_no() {
@@ -320,6 +347,29 @@ while [[ $# -gt 0 ]]; do
       ;;
     --binary-validation)
       binary_validation="${2:-}"
+      shift 2
+      ;;
+    --tls-mode)
+      tls_mode="${2:-}"
+      tls_explicit="true"
+      shift 2
+      ;;
+    --domain)
+      public_domain="${2:-}"
+      domain_explicit="true"
+      shift 2
+      ;;
+    --acme-email)
+      acme_email="${2:-}"
+      shift 2
+      ;;
+    --cloudflare-api-token)
+      cloudflare_api_token="${2:-}"
+      shift 2
+      ;;
+    --https-port)
+      https_port="${2:-}"
+      https_port_explicit="true"
       shift 2
       ;;
     --skip-deps)
@@ -490,7 +540,6 @@ load_os_release() {
   # shellcheck disable=SC1091
   . /etc/os-release
   OS_ID="${ID:-}"
-  OS_VERSION_ID="${VERSION_ID:-}"
   OS_CODENAME="${VERSION_CODENAME:-}"
 }
 
@@ -683,7 +732,7 @@ install_node() {
   log "正在安装 Node.js v${node_version}（${arch}）"
   curl -fsSL --retry 3 --connect-timeout 20 -o "${tmp}/${asset}.tar.xz" "$url"
   mkdir -p "$install_root"
-  rm -rf "${install_root}/${asset}"
+  rm -rf "${install_root:?}/${asset}"
   tar -xJf "${tmp}/${asset}.tar.xz" -C "$install_root"
   ln -sfn "${install_root}/${asset}" "${install_root}/node"
   ln -sfn "${install_root}/node/bin/node" /usr/local/bin/node
@@ -792,6 +841,65 @@ MENU
   esac
 }
 
+normalize_tls_mode() {
+  case "${1,,}" in
+    none|off|false|0)
+      printf 'none'
+      ;;
+    letsencrypt|letsencrypt-cloudflare|cloudflare|on|true|1)
+      printf 'letsencrypt'
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_domain() {
+  local value="$1"
+  [[ "$value" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]
+}
+
+prompt_tls_options() {
+  local default_enabled="false"
+  local enable_tls
+  [[ "$tls_mode" == "letsencrypt" ]] && default_enabled="true"
+  [[ "$role" == "admin-ui" && "$tls_explicit" != "true" ]] && default_enabled="true"
+
+  prompt_yes_no enable_tls "是否通过 Cloudflare DNS API 自动申请并配置 HTTPS 证书" "$default_enabled"
+  if [[ "$enable_tls" != "true" ]]; then
+    tls_mode="none"
+    if [[ "$role" == "backend-core" && "$listen_host" == "127.0.0.1" && "$listen_host_explicit" != "true" ]]; then
+      prompt_line listen_host "关闭后端 HTTPS 后的监听地址" "0.0.0.0"
+    fi
+    return
+  fi
+
+  tls_mode="letsencrypt"
+  while true; do
+    prompt_required public_domain "请输入该服务器的访问域名" "$public_domain"
+    if validate_domain "$public_domain"; then
+      public_domain="${public_domain,,}"
+      break
+    fi
+    warn "域名格式不正确，例如 panel.example.com"
+    public_domain=""
+  done
+  prompt_required acme_email "请输入 Let's Encrypt 通知邮箱" "$acme_email"
+
+  if [[ -z "$cloudflare_api_token" && ! -s /etc/kato/cloudflare.ini ]]; then
+    prompt_secret cloudflare_api_token "请输入 Cloudflare DNS API Token（输入内容不会显示）"
+    [[ -n "$cloudflare_api_token" ]] || die "启用 HTTPS 必须提供 Cloudflare API Token"
+  elif [[ -s /etc/kato/cloudflare.ini && -z "$cloudflare_api_token" ]]; then
+    log "将复用 /etc/kato/cloudflare.ini 中保存的 Cloudflare API Token。"
+  fi
+
+  if [[ "$role" == "backend-core" ]]; then
+    listen_host="127.0.0.1"
+    log "后端启用公网 HTTPS 后，Backend Core 将只监听 127.0.0.1，由 Nginx 对外提供 443。"
+  fi
+}
+
 prompt_backend_options() {
   echo
   log "请填写面板后端参数。直接回车表示使用括号里的默认值。"
@@ -817,6 +925,7 @@ prompt_backend_options() {
       prompt_required admin_cors_origins "请输入前端地址，多个地址用英文逗号分隔"
     fi
   fi
+  prompt_tls_options
 }
 
 prompt_admin_ui_options() {
@@ -833,6 +942,7 @@ prompt_admin_ui_options() {
   fi
   prompt_line panel_admin_path "管理后台隐藏入口路径" "$panel_admin_path"
   prompt_line admin_ui_port "前端网页监听端口" "$admin_ui_port"
+  prompt_tls_options
 }
 
 prompt_agent_options() {
@@ -1101,6 +1211,10 @@ WantedBy=multi-user.target"
 
 install_backend_core() {
   log "正在安装面板后端 backend-core"
+  validate_tls_options
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    listen_host="127.0.0.1"
+  fi
   write_backend_config
   initialize_backend_store
   write_backend_service
@@ -1109,14 +1223,23 @@ install_backend_core() {
   systemctl enable --now kato-backend-core.service
   systemctl restart kato-backend-core.service
   wait_for_backend
+  configure_backend_tls_proxy
 
   log "面板后端安装完成"
-  log "后端 API 地址：http://$(public_ipv4):${listen_port}"
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    log "后端 API 地址：https://${public_domain}:${https_port}"
+  else
+    log "后端 API 地址：http://$(public_ipv4):${listen_port}"
+  fi
   log "管理员账号：${admin_username}"
   log "后端维护 API 密钥保存位置：/etc/kato/backend-core.env"
   log "前端配对 token 保存位置：/etc/kato/frontend-pairing-token.txt"
   printf '\n========== 请复制给前端服务器安装使用 ==========\n'
-  printf '后端 API 地址: http://%s:%s\n' "$(public_ipv4)" "${listen_port}"
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    printf '后端 API 地址: https://%s:%s\n' "${public_domain}" "${https_port}"
+  else
+    printf '后端 API 地址: http://%s:%s\n' "$(public_ipv4)" "${listen_port}"
+  fi
   printf '前端配对 token: %s\n' "${frontend_pairing_token}"
   printf '==============================================\n\n'
 }
@@ -1135,9 +1258,178 @@ wait_for_backend() {
   die "面板后端健康检查失败，请查看上方日志"
 }
 
+configure_backend_tls_proxy() {
+  if [[ "$tls_mode" != "letsencrypt" ]]; then
+    write_tls_state
+    rm -f /etc/nginx/sites-enabled/kato-backend-core.conf
+    if command_exists nginx && systemctl is-active --quiet nginx.service; then
+      nginx -t
+      systemctl reload nginx.service
+    fi
+    return 0
+  fi
+
+  install_nginx
+  ensure_tls_certificate
+  local cert_dir
+  cert_dir="$(tls_cert_dir)"
+  rm -f /etc/nginx/sites-enabled/default
+  cat >/etc/nginx/sites-available/kato-backend-core.conf <<EOF
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${public_domain};
+
+    location = /health {
+        proxy_pass http://127.0.0.1:${listen_port}/health;
+    }
+
+    location / {
+        return 301 https://${public_domain}:${https_port}\$request_uri;
+    }
+}
+
+server {
+    listen ${https_port} ssl http2 default_server;
+    listen [::]:${https_port} ssl http2 default_server;
+    server_name ${public_domain};
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_session_cache shared:KATO_SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    client_max_body_size 2m;
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 90s;
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_pass http://127.0.0.1:${listen_port};
+    }
+}
+EOF
+  ln -sfn /etc/nginx/sites-available/kato-backend-core.conf /etc/nginx/sites-enabled/kato-backend-core.conf
+  nginx -t
+  systemctl reload nginx.service
+  curl -fsS --resolve "${public_domain}:${https_port}:127.0.0.1" "https://${public_domain}:${https_port}/health" >/dev/null
+}
+
 install_nginx() {
   [[ "$skip_deps" == "true" ]] || install_packages nginx
   systemctl enable --now nginx.service
+}
+
+tls_state_path() {
+  printf '/etc/kato/tls.env'
+}
+
+cloudflare_credentials_path() {
+  printf '/etc/kato/cloudflare.ini'
+}
+
+tls_cert_name() {
+  printf 'kato-%s' "$role"
+}
+
+tls_cert_dir() {
+  printf '/etc/letsencrypt/live/%s' "$(tls_cert_name)"
+}
+
+validate_tls_options() {
+  if ! tls_mode="$(normalize_tls_mode "$tls_mode")"; then
+    die "不支持的 HTTPS 模式：${tls_mode}，可选 none / letsencrypt"
+  fi
+  [[ "$tls_mode" == "letsencrypt" ]] || return 0
+  [[ -n "$public_domain" ]] || die "启用 HTTPS 必须填写 --domain"
+  validate_domain "$public_domain" || die "域名格式不正确：${public_domain}"
+  [[ -n "$acme_email" ]] || die "启用 HTTPS 必须填写 --acme-email"
+  [[ "$https_port" =~ ^[0-9]+$ && "$https_port" -ge 1 && "$https_port" -le 65535 ]] || die "HTTPS 端口必须是 1-65535 的整数"
+  if [[ -z "$cloudflare_api_token" && ! -s "$(cloudflare_credentials_path)" ]]; then
+    die "启用 HTTPS 必须填写 --cloudflare-api-token，或保留已有 /etc/kato/cloudflare.ini"
+  fi
+}
+
+write_tls_state() {
+  local state_path
+  state_path="$(tls_state_path)"
+  cat >"$state_path" <<EOF
+# Kato HTTPS 配置，由安装脚本生成。Cloudflare Token 单独保存在 cloudflare.ini。
+KATO_TLS_MODE=${tls_mode}
+KATO_DOMAIN=${public_domain}
+KATO_ACME_EMAIL=${acme_email}
+KATO_HTTPS_PORT=${https_port}
+KATO_TLS_CERT_NAME=$(tls_cert_name)
+EOF
+  chown root:kato "$state_path"
+  chmod 0640 "$state_path"
+}
+
+install_tls_dependencies() {
+  [[ "$skip_deps" == "true" ]] || install_packages certbot python3-certbot-dns-cloudflare
+}
+
+install_cloudflare_credentials() {
+  local credentials_path
+  credentials_path="$(cloudflare_credentials_path)"
+  install -d -m 0750 -o root -g kato /etc/kato
+  if [[ -n "$cloudflare_api_token" ]]; then
+    cat >"$credentials_path" <<EOF
+# Cloudflare API Token：仅需目标 Zone 的 Zone:Read 与 DNS:Edit 权限。
+dns_cloudflare_api_token = ${cloudflare_api_token}
+EOF
+  fi
+  [[ -s "$credentials_path" ]] || die "Cloudflare 凭据文件不存在：${credentials_path}"
+  chown root:root "$credentials_path"
+  chmod 0600 "$credentials_path"
+}
+
+install_certbot_reload_hook() {
+  install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
+  cat >/etc/letsencrypt/renewal-hooks/deploy/kato-reload-nginx <<'EOF'
+#!/usr/bin/env bash
+set -e
+nginx -t
+systemctl reload nginx.service
+EOF
+  chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/kato-reload-nginx
+}
+
+ensure_tls_certificate() {
+  [[ "$tls_mode" == "letsencrypt" ]] || return 0
+  validate_tls_options
+  install_tls_dependencies
+  install_cloudflare_credentials
+
+  local cert_name cert_dir renew_option
+  cert_name="$(tls_cert_name)"
+  cert_dir="$(tls_cert_dir)"
+  renew_option="--keep-until-expiring"
+  if [[ -s "${cert_dir}/fullchain.pem" ]] && ! openssl x509 -in "${cert_dir}/fullchain.pem" -noout -checkhost "$public_domain" >/dev/null 2>&1; then
+    renew_option="--force-renewal"
+    log "检测到 HTTPS 域名发生变化，将为 ${public_domain} 重新签发证书。"
+  fi
+  log "正在检查或申请 Let's Encrypt 证书：${public_domain}"
+  certbot certonly \
+    --non-interactive \
+    --agree-tos \
+    --email "$acme_email" \
+    --dns-cloudflare \
+    --dns-cloudflare-credentials "$(cloudflare_credentials_path)" \
+    --dns-cloudflare-propagation-seconds 30 \
+    --cert-name "$cert_name" \
+    "$renew_option" \
+    -d "$public_domain"
+  install_certbot_reload_hook
+  systemctl enable --now certbot.timer >/dev/null 2>&1 || warn "未能启用 certbot.timer，请确认系统是否提供该定时器"
+  write_tls_state
 }
 
 memory_total_mb() {
@@ -1270,6 +1562,7 @@ HTML
 
 install_admin_ui() {
   log "正在安装面板前端服务器 admin-ui"
+  validate_tls_options
   install_nginx
 
   local app_dir="${source_dir}/apps/admin-ui"
@@ -1305,7 +1598,72 @@ install_admin_ui() {
     rm -f /etc/nginx/sites-enabled/default
   fi
 
-  cat >/etc/nginx/sites-available/kato-panel-frontend.conf <<EOF
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    ensure_tls_certificate
+    local cert_dir
+    cert_dir="$(tls_cert_dir)"
+    cat >/etc/nginx/sites-available/kato-panel-frontend.conf <<EOF
+server {
+    listen ${admin_ui_port} default_server;
+    listen [::]:${admin_ui_port} default_server;
+    server_name ${public_domain};
+
+    location = /health {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://${public_domain}:${https_port}\$request_uri;
+    }
+}
+
+server {
+    listen ${https_port} ssl http2 default_server;
+    listen [::]:${https_port} ssl http2 default_server;
+    server_name ${public_domain};
+    root ${site_root};
+    index index.html;
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_session_cache shared:KATO_SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location = /health {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location = ${panel_admin_path} {
+        return 302 ${panel_admin_path}/;
+    }
+
+    location ^~ ${panel_admin_path}/ {
+        try_files \$uri \$uri/ ${panel_admin_path}/index.html;
+    }
+
+    location /api/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Frontend-Token ${frontend_pairing_token};
+        proxy_pass ${backend_upstream};
+    }
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+EOF
+  else
+    write_tls_state
+    cat >/etc/nginx/sites-available/kato-panel-frontend.conf <<EOF
 server {
     listen ${admin_ui_port} default_server;
     listen [::]:${admin_ui_port} default_server;
@@ -1341,14 +1699,24 @@ server {
     }
 }
 EOF
+  fi
   rm -f /etc/nginx/sites-enabled/kato-admin-ui.conf
   ln -sfn /etc/nginx/sites-available/kato-panel-frontend.conf /etc/nginx/sites-enabled/kato-panel-frontend.conf
   nginx -t
   systemctl reload nginx.service
-  curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    curl -fsS --resolve "${public_domain}:${https_port}:127.0.0.1" "https://${public_domain}:${https_port}/health" >/dev/null
+  else
+    curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
+  fi
   log "面板前端服务器安装完成"
-  log "工具站入口：http://$(public_ipv4):${admin_ui_port}/"
-  log "管理后台入口：http://$(public_ipv4):${admin_ui_port}${panel_admin_path}/"
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    log "工具站入口：https://${public_domain}:${https_port}/"
+    log "管理后台入口：https://${public_domain}:${https_port}${panel_admin_path}/"
+  else
+    log "工具站入口：http://$(public_ipv4):${admin_ui_port}/"
+    log "管理后台入口：http://$(public_ipv4):${admin_ui_port}${panel_admin_path}/"
+  fi
   log "后端 API 反向代理：/api/ -> ${backend_upstream}"
 }
 
@@ -1603,6 +1971,24 @@ json_read() {
   jq -r "${expr} // empty" "$file" 2>/dev/null || true
 }
 
+load_existing_tls_config() {
+  local state_path
+  state_path="$(tls_state_path)"
+  [[ -f "$state_path" ]] || return 0
+  if [[ "$tls_explicit" != "true" ]]; then
+    tls_mode="$(awk -F= '/^KATO_TLS_MODE=/{print $2; exit}' "$state_path")"
+  fi
+  if [[ "$domain_explicit" != "true" ]]; then
+    public_domain="$(awk -F= '/^KATO_DOMAIN=/{print $2; exit}' "$state_path")"
+  fi
+  acme_email="${acme_email:-$(awk -F= '/^KATO_ACME_EMAIL=/{print $2; exit}' "$state_path")}"
+  if [[ "$https_port_explicit" != "true" ]]; then
+    https_port="$(awk -F= '/^KATO_HTTPS_PORT=/{print $2; exit}' "$state_path")"
+  fi
+  tls_mode="${tls_mode:-none}"
+  https_port="${https_port:-443}"
+}
+
 load_existing_backend_config() {
   local config_path="/etc/kato/backend-core.json"
   local env_path="/etc/kato/backend-core.env"
@@ -1618,6 +2004,7 @@ load_existing_backend_config() {
   fi
   listen_host="${listen_host:-0.0.0.0}"
   listen_port="${listen_port:-8080}"
+  load_existing_tls_config
 }
 
 load_existing_admin_ui_config() {
@@ -1626,10 +2013,11 @@ load_existing_admin_ui_config() {
   [[ -f "$conf" ]] || return 0
   backend_url="${backend_url:-$(awk '/proxy_pass /{gsub(";","",$2); print $2; exit}' "$conf")}"
   frontend_pairing_token="${frontend_pairing_token:-$(awk '/X-Frontend-Token/{gsub(";","",$3); print $3; exit}' "$conf")}"
-  panel_admin_path="${panel_admin_path:-$(awk '$1=="location" && $2=="="{print $3; exit}' "$conf")}"
+  panel_admin_path="${panel_admin_path:-$(awk '$1=="location" && $2=="=" && $3!="/health"{print $3; exit}' "$conf")}"
   existing_port="$(awk '/listen / && /default_server/ && $2 !~ /^\[/{gsub(";","",$2); print $2; exit}' "$conf")"
   [[ "$admin_ui_port_explicit" == "true" || -z "$existing_port" ]] || admin_ui_port="$existing_port"
   admin_ui_port="${admin_ui_port:-80}"
+  load_existing_tls_config
 }
 
 load_existing_agent_config() {
@@ -1644,30 +2032,43 @@ load_existing_agent_config() {
 }
 
 create_upgrade_backup() {
-  local backup_dir="/var/lib/kato/backups"
-  local backup_path="${backup_dir}/upgrade-${role}-$(date '+%Y%m%d%H%M%S').tar.gz"
-  mkdir -p "$backup_dir"
+  local backup_dir="/var/backups/kato"
+  local backup_path
+  backup_path="${backup_dir}/upgrade-${role}-$(date '+%Y%m%d%H%M%S').tar.gz"
+  install -d -m 0700 -o root -g root "$backup_dir"
   tar -czf "$backup_path" --ignore-failed-read /etc/kato /var/lib/kato 2>/dev/null || true
-  chown -R kato:kato "$backup_dir" 2>/dev/null || true
+  chown root:root "$backup_path"
+  chmod 0600 "$backup_path"
   log "升级前备份已创建：${backup_path}"
 }
 
 upgrade_backend_core() {
   log "正在升级面板后端 backend-core"
   load_existing_backend_config
+  if can_prompt; then
+    prompt_tls_options
+  fi
   create_upgrade_backup
+  validate_tls_options
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    listen_host="127.0.0.1"
+  fi
   write_backend_config
   write_backend_service
   systemctl daemon-reload
   systemctl enable --now kato-backend-core.service
   systemctl restart kato-backend-core.service
   wait_for_backend
+  configure_backend_tls_proxy
   log "面板后端升级完成，当前版本：${APP_VERSION}"
 }
 
 upgrade_admin_ui() {
   log "正在升级面板前端服务器 admin-ui"
   load_existing_admin_ui_config
+  if can_prompt; then
+    prompt_tls_options
+  fi
   if [[ -z "$backend_url" ]]; then
     can_prompt || die "未读取到后端 API 地址，请传入 --backend-url"
     prompt_required backend_url "未读取到后端 API 地址，请输入，例如 http://后端IP:8080"

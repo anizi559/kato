@@ -328,7 +328,7 @@ const resourceConfigs = {
       { key: "status", label: "状态", options: ["全部", "运行中", "待发布"] },
       { key: "visible", label: "可见性", options: ["全部", "true"] },
     ],
-    detailRows: [["类型", "type"], ["协议 / 传输", "protocol"], ["显示主机", "displayHost"], ["端口", "port"], ["创建时间", "createdAt"], ["配置版本", "configVersion"]],
+    detailRows: [["类型", "type"], ["协议 / 传输", "protocol"], ["显示主机", "displayHost"], ["端口", "port"], ["探测结果", (row) => `${row.raw?.health?.status || "未探测"}${row.raw?.health?.latencyMs != null ? ` · ${row.raw.health.latencyMs}ms` : ""}`], ["探测时间", (row) => isoText(row.raw?.health?.probedAt)], ["创建时间", "createdAt"], ["配置版本", "configVersion"]],
     relationRows: [["入站", "inbound"], ["中转规则", "relayRule"], ["代理服务器", "proxyNode"], ["中转服务器", "transitRelay"]],
     metricRows: [["权限组可见性", (row) => row.plans.join("、")], ["应用时间", "appliedAt"], ["订阅可见", () => "是"]],
     preview: (row) => `- name: ${row.id}\n  type: ${row.type.toLowerCase()}\n  listen: 0.0.0.0:${row.port}\n  transport: ${row.protocol.toLowerCase()}\n  inbound: ${row.inbound}\n  transit_relay: ${row.transitRelay}`,
@@ -416,7 +416,7 @@ const resourceConfigs = {
       { key: "status", label: "状态", options: ["全部", "运行中", "待发布"] },
       { key: "transport", label: "传输", options: ["全部", "TCP", "UDP"] },
     ],
-    detailRows: [["中转服务器", "transitRelay"], ["入口端口", "entryPort"], ["目标主机", "targetHost"], ["目标端口", "targetPort"], ["传输", "transport"], ["状态", "status"]],
+    detailRows: [["中转服务器", "transitRelay"], ["入口端口", "entryPort"], ["目标主机", "targetHost"], ["目标端口", "targetPort"], ["传输", "transport"], ["探测结果", (row) => `${row.raw?.health?.status || "未探测"}${row.raw?.health?.latencyMs != null ? ` · ${row.raw.health.latencyMs}ms` : ""}`], ["状态", "status"]],
     relationRows: [["Access Node", "accessNode"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `[[endpoints]]\nlisten = \"0.0.0.0:${row.entryPort}\"\nremote = \"${row.targetHost}:${row.targetPort}\"\ntransport = \"${row.transport.toLowerCase()}\"\naccess_node = \"${row.accessNode}\"`,
@@ -1130,7 +1130,8 @@ function adaptAccessNode(accessNode, context) {
     proxyNode: proxyNode?.name || accessNode.proxyNodeId || "-",
     transitRelay: relay?.name || accessNode.transitRelayId || "-",
     visible: accessNode.enabled !== false,
-    status: enabledLabel(accessNode),
+    status: accessNode.health?.status === "failed" ? "故障" : accessNode.health?.status === "ok" ? "正常" : enabledLabel(accessNode),
+    health: accessNode.health?.status || "未探测",
     configVersion: `v${context.summary?.version || 1}`,
     inbound: inbound?.name || accessNode.inboundId || "-",
     relayRule: rule?.name || accessNode.relayRuleId || "-",
@@ -1151,7 +1152,8 @@ function adaptRelayRule(rule, context) {
     summary: `${relay?.name || rule.relayId}:${rule.entry?.port} -> ${proxyNode?.name || rule.proxyNodeId}:${rule.target?.port}`,
     group: (rule.transport || "tcp").toUpperCase(),
     name: rule.name || rule.id,
-    status: enabledLabel(rule),
+    status: rule.health?.status === "failed" ? "故障" : rule.health?.status === "ok" ? "正常" : enabledLabel(rule),
+    health: rule.health?.status || "未探测",
     transitRelay: relay?.name || rule.relayId,
     entryPort: String(rule.entry?.port || "-"),
     targetHost: rule.target?.host || proxyNode?.name || "-",
@@ -2475,6 +2477,8 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
     alertWebhookUrl: "",
     telegramBotToken: "",
     telegramChatId: "",
+    healthProbeIntervalSeconds: 60,
+    healthProbeTimeoutMs: 3000,
   });
 
   useEffect(() => {
@@ -2489,6 +2493,8 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
         alertWebhookUrl: backendSettings.alertWebhookUrl || "",
         telegramBotToken: backendSettings.telegramBotToken || "",
         telegramChatId: backendSettings.telegramChatId || "",
+        healthProbeIntervalSeconds: Number(backendSettings.healthProbeIntervalSeconds) || 60,
+        healthProbeTimeoutMs: Number(backendSettings.healthProbeTimeoutMs) || 3000,
       });
     }
   }, [backendSettings]);
@@ -2563,6 +2569,8 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
             <label><span>通用 Webhook URL</span><input placeholder="https://example.com/hook（POST JSON）" value={subscriptionSettings.alertWebhookUrl} onChange={(event) => updateSubscriptionSetting("alertWebhookUrl", event.target.value)} /></label>
             <label><span>Telegram Bot Token</span><input placeholder="123456:ABC-DEF" value={subscriptionSettings.telegramBotToken} onChange={(event) => updateSubscriptionSetting("telegramBotToken", event.target.value)} /></label>
             <label><span>Telegram Chat ID</span><input placeholder="-100123456789" value={subscriptionSettings.telegramChatId} onChange={(event) => updateSubscriptionSetting("telegramChatId", event.target.value)} /></label>
+            <label><span>健康探测间隔（秒）</span><input type="number" min="15" value={subscriptionSettings.healthProbeIntervalSeconds} onChange={(event) => updateSubscriptionSetting("healthProbeIntervalSeconds", Number(event.target.value))} /></label>
+            <label><span>健康探测超时（毫秒）</span><input type="number" min="500" value={subscriptionSettings.healthProbeTimeoutMs} onChange={(event) => updateSubscriptionSetting("healthProbeTimeoutMs", Number(event.target.value))} /></label>
             <button className="button button--primary" type="button" onClick={() => onSaveBackendSettings && onSaveBackendSettings(subscriptionSettings)}><IconCircleCheck size={16} stroke={1.9} />保存告警设置</button>
           </section>
 

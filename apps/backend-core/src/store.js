@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { PROTOCOLS, nowIso } from "../../../packages/shared/src/protocol.js";
 import { compileDesiredState } from "./desired-state.js";
 import { createHex, createId, createSecret, createUuid, createX25519KeyPair, hashPassword, sha256, verifyPassword } from "./security.js";
+import { probeEndpoint } from "./health.js";
 
 const RESOURCE_SPECS = Object.freeze({
   plans: { stateKey: "plans", idPrefix: "plan", label: "plan" },
@@ -34,7 +35,9 @@ function emptyState() {
       agentOfflineSeconds: 180,
       alertWebhookUrl: "",
       telegramBotToken: "",
-      telegramChatId: ""
+      telegramChatId: "",
+      healthProbeIntervalSeconds: 60,
+      healthProbeTimeoutMs: 3000
     },
     adminUsers: [],
     adminSessions: [],
@@ -443,6 +446,87 @@ export class JsonStore {
     return { ok: true, changed, createdAlerts };
   }
 
+  async runHealthProbes() {
+    const timeoutMs = Number(this.state.settings.healthProbeTimeoutMs) || 3000;
+    const targets = [];
+    const now = nowIso();
+
+    for (const accessNode of this.state.accessNodes) {
+      if (!accessNode.enabled) {
+        continue;
+      }
+      const host = accessNode.host;
+      if (!host || host === "0.0.0.0" || host === "::") {
+        continue;
+      }
+      targets.push({
+        kind: "access-node",
+        resource: accessNode,
+        host,
+        port: accessNode.port,
+        protocol: accessNode.transport || (accessNode.protocol === PROTOCOLS.HYSTERIA2 ? "udp" : "tcp")
+      });
+    }
+
+    for (const rule of this.state.relayRules) {
+      if (!rule.enabled) {
+        continue;
+      }
+      const relay = this.state.transitRelays.find((item) => item.id === rule.relayId);
+      const host = relay?.publicHost || relay?.publicIp || rule.entry?.host;
+      if (!host || host === "0.0.0.0" || host === "::") {
+        continue;
+      }
+      targets.push({
+        kind: "relay-rule",
+        resource: rule,
+        host,
+        port: rule.entry?.port,
+        protocol: rule.transport || "tcp"
+      });
+    }
+
+    let dirty = false;
+    const createdAlerts = [];
+    for (const target of targets) {
+      const probe = await probeEndpoint(target.host, target.port, {
+        protocol: target.protocol,
+        timeoutMs
+      });
+      const previous = target.resource.health?.status;
+      target.resource.health = {
+        ...probe,
+        protocol: target.protocol,
+        probedAt: now
+      };
+      target.resource.updatedAt = now;
+      if (previous !== probe.status) {
+        dirty = true;
+      }
+
+      if (probe.status === "failed") {
+        const alert = this.recordAlert({
+          type: "probe.failed",
+          severity: target.protocol === "udp" ? "warning" : "danger",
+          title: `${target.kind === "relay-rule" ? "转发规则" : "访问节点"}探测失败：${target.resource.name}`,
+          message: `${target.host}:${target.port} 探测失败：${probe.error || "unreachable"}`,
+          resourceType: target.kind,
+          resourceId: target.resource.id
+        });
+        if (!createdAlerts.includes(alert)) {
+          createdAlerts.push(alert);
+        }
+      } else if (this.resolveAlerts(target.kind, target.resource.id, "probe.failed")) {
+        dirty = true;
+      }
+    }
+
+    if (dirty) {
+      await this.save();
+    }
+    return { ok: true, probed: targets.length, changed: dirty, createdAlerts };
+  }
+
   listAuditLogs({ limit = 200 } = {}) {
     return this.state.auditLogs.slice(-Math.max(1, Math.min(limit, 500))).map(clone).reverse();
   }
@@ -506,7 +590,9 @@ export class JsonStore {
       "agentOfflineSeconds",
       "alertWebhookUrl",
       "telegramBotToken",
-      "telegramChatId"
+      "telegramChatId",
+      "healthProbeIntervalSeconds",
+      "healthProbeTimeoutMs"
     ]);
     for (const [key, value] of Object.entries(patch)) {
       if (!allowedKeys.has(key)) {

@@ -31,9 +31,11 @@ export async function createBackendApp(config = DEFAULT_CONFIG) {
   await store.sweepAlerts();
   const sweepTimer = setInterval(async () => {
     try {
-      const result = await store.sweepAlerts();
+      const sweep = await store.sweepAlerts();
+      const probes = await store.runHealthProbes();
       const settings = store.getSettings();
-      for (const alert of result.createdAlerts || []) {
+      const createdAlerts = [...(sweep.createdAlerts || []), ...(probes.createdAlerts || [])];
+      for (const alert of createdAlerts) {
         await notifyAlert(alert, settings);
       }
     } catch {

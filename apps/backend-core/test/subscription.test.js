@@ -109,7 +109,7 @@ test("subscription endpoint returns sing-box json with visible nodes and userinf
     assert.ok(response.headers.get("profile-update-interval"));
 
     const payload = await response.json();
-    assert.equal(payload.version, 1);
+    assert.equal(payload.version, undefined);
     assert.equal(payload.outbounds.length, 2);
     const vless = payload.outbounds.find((outbound) => outbound.type === "vless");
     const hy2 = payload.outbounds.find((outbound) => outbound.type === "hysteria2");

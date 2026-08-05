@@ -186,7 +186,6 @@ export function buildUris(nodes) {
 
 export function buildSingboxPayload(nodes) {
   return {
-    version: 1,
     log: {
       level: "warn"
     },

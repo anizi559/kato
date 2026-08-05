@@ -23,6 +23,7 @@ test("proxy-node runtime renderer emits xray and hysteria2 configs", () => {
   assert.equal(xrayConfig.inbounds[0].settings.clients[0].id, "6b6fdf26-7f7d-42bf-85db-6a5556f81f18");
   assert.equal(xrayConfig.inbounds[0].streamSettings.security, "reality");
   assert.equal(xrayConfig.api.services[0], "StatsService");
+  assert.deepEqual(xrayConfig.stats, {});
   assert.equal(xrayConfig.policy.levels[0].statsUserUplink, true);
   assert.equal(xrayConfig.policy.levels[0].statsUserDownlink, true);
   assert.equal(xrayConfig.policy.system.statsInboundUplink, true);

@@ -107,6 +107,7 @@ export function renderXrayConfig(inbounds) {
       listen: "127.0.0.1:10085",
       services: ["StatsService"]
     },
+    stats: {},
     inbounds: inbounds.map(renderXrayVlessInbound),
     outbounds: [
       {

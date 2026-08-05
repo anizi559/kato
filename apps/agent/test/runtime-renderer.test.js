@@ -25,6 +25,8 @@ test("proxy-node runtime renderer emits xray and hysteria2 configs", () => {
   assert.equal(xrayConfig.api.services[0], "StatsService");
   assert.equal(xrayConfig.policy.levels[0].statsUserUplink, true);
   assert.equal(xrayConfig.policy.levels[0].statsUserDownlink, true);
+  assert.equal(xrayConfig.policy.system.statsInboundUplink, true);
+  assert.equal(xrayConfig.policy.system.statsInboundDownlink, true);
 
   assert.match(hysteria.content, /type: userpass/);
   assert.match(hysteria.content, /hy2-secret/);

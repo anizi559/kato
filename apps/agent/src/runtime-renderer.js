@@ -142,6 +142,10 @@ export function renderXrayConfig(inbounds) {
           statsUserUplink: true,
           statsUserDownlink: true
         }
+      },
+      system: {
+        statsInboundUplink: true,
+        statsInboundDownlink: true
       }
     }
   };

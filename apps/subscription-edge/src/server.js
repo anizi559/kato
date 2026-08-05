@@ -8,7 +8,11 @@ const DEFAULT_CONFIG = {
   backendUrl: "",
   agentStatePath: "/var/lib/kato/agent-state.json",
   pathPrefix: "go",
-  requestTimeoutMs: 10000
+  requestTimeoutMs: 10000,
+  cacheTtlSeconds: 60,
+  staleIfErrorSeconds: 300,
+  rateLimitPerMinute: 60,
+  rateLimitBurst: 3
 };
 
 export async function loadConfig(path = process.env.SUBSCRIPTION_EDGE_CONFIG) {
@@ -28,10 +32,12 @@ export function createSubscriptionEdgeApp(config = DEFAULT_CONFIG) {
   validateConfig(resolvedConfig);
 
   const backendBase = resolvedConfig.backendUrl.replace(/\/+$/, "");
+  const cache = new Map();
+  const rateLimiters = new Map();
 
   async function handler(req, res) {
     try {
-      await route(req, res, resolvedConfig, backendBase);
+      await route(req, res, resolvedConfig, backendBase, cache, rateLimiters);
     } catch (error) {
       genericNotFound(res);
     }
@@ -42,7 +48,7 @@ export function createSubscriptionEdgeApp(config = DEFAULT_CONFIG) {
   };
 }
 
-async function route(req, res, config, backendBase) {
+async function route(req, res, config, backendBase, cache, rateLimiters) {
   const url = new URL(req.url, "http://localhost");
   const path = url.pathname;
 
@@ -59,17 +65,110 @@ async function route(req, res, config, backendBase) {
     if (!token) {
       return genericNotFound(res);
     }
+
+    if (!allowRequest(rateLimiters, token, config)) {
+      res.writeHead(429, {
+        "content-type": "text/plain; charset=utf-8",
+        "retry-after": "1"
+      });
+      return res.end();
+    }
+
+    const cached = readCache(cache, token, config);
+    if (cached) {
+      res.writeHead(200, {
+        ...cached.headers,
+        "x-kato-cache": "hit"
+      });
+      return res.end(cached.body);
+    }
+
     const upstream = await fetchSubscription(backendBase, token, config, {
       userAgent: req.headers["user-agent"]
     });
     if (!upstream) {
+      const stale = readStaleCache(cache, token, config);
+      if (stale) {
+        res.writeHead(200, {
+          ...stale.headers,
+          "x-kato-cache": "stale"
+        });
+        return res.end(stale.body);
+      }
       return genericNotFound(res);
     }
-    res.writeHead(200, upstream.headers);
+    writeCache(cache, token, upstream, config);
+    res.writeHead(200, {
+      ...upstream.headers,
+      "x-kato-cache": "miss"
+    });
     return res.end(upstream.body);
   }
 
   return genericNotFound(res);
+}
+
+function allowRequest(rateLimiters, token, config) {
+  const now = Date.now();
+  const refillRate = Math.max(1, Number(config.rateLimitPerMinute) || 60) / 60 / 1000;
+  const burst = Math.max(1, Number(config.rateLimitBurst) || 1);
+  let bucket = rateLimiters.get(token);
+  if (!bucket) {
+    bucket = { tokens: burst, lastRefillAt: now };
+    rateLimiters.set(token, bucket);
+  }
+  bucket.tokens = Math.min(burst, bucket.tokens + (now - bucket.lastRefillAt) * refillRate);
+  bucket.lastRefillAt = now;
+  if (bucket.tokens < 1) {
+    return false;
+  }
+  bucket.tokens -= 1;
+  return true;
+}
+
+function readCache(cache, token, config) {
+  const entry = cache.get(token);
+  if (!entry) {
+    return null;
+  }
+  const ttlMs = Math.max(0, Number(config.cacheTtlSeconds) || 0) * 1000;
+  if (ttlMs > 0 && Date.now() - entry.cachedAt < ttlMs) {
+    return entry;
+  }
+  return null;
+}
+
+function readStaleCache(cache, token, config) {
+  const entry = cache.get(token);
+  if (!entry) {
+    return null;
+  }
+  const staleMs = Math.max(0, Number(config.staleIfErrorSeconds) || 0) * 1000;
+  if (staleMs > 0 && Date.now() - entry.cachedAt < staleMs) {
+    return entry;
+  }
+  cache.delete(token);
+  return null;
+}
+
+function writeCache(cache, token, upstream, config) {
+  const entry = {
+    body: upstream.body,
+    headers: {
+      "content-type": upstream.headers["content-type"] || "application/octet-stream",
+      ...(upstream.headers["subscription-userinfo"] ? { "subscription-userinfo": upstream.headers["subscription-userinfo"] } : {}),
+      ...(upstream.headers["profile-update-interval"] ? { "profile-update-interval": upstream.headers["profile-update-interval"] } : {}),
+      ...(upstream.headers["profile-title"] ? { "profile-title": upstream.headers["profile-title"] } : {}),
+      "cache-control": `max-age=${Math.max(0, Number(config.cacheTtlSeconds) || 0)}`,
+      "x-kato-cache": "miss"
+    },
+    cachedAt: Date.now()
+  };
+  cache.set(token, entry);
+  if (cache.size > 10000) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
 }
 
 async function fetchSubscription(backendBase, token, config, { userAgent } = {}) {

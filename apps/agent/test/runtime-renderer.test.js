@@ -7,22 +7,33 @@ import test from "node:test";
 import { PROTOCOLS } from "../../../packages/shared/src/protocol.js";
 import { applyRuntimeConfig } from "../src/runtime-apply.js";
 import { renderRuntimeBundle } from "../src/runtime-renderer.js";
+import { renderSingboxConfig, validateRenderedBundle } from "../src/runtime-renderer.js";
 
 test("proxy-node runtime renderer emits xray and hysteria2 configs", () => {
   const bundle = renderRuntimeBundle(proxyDesired());
   const xray = bundle.files.find((file) => file.component === "xray");
   const hysteria = bundle.files.find((file) => file.component === "hysteria2");
+  const trafficStats = bundle.files.find((file) => file.component === "traffic-stats");
 
   assert.ok(xray);
   assert.ok(hysteria);
+  assert.ok(trafficStats);
   const xrayConfig = JSON.parse(xray.content);
   assert.equal(xrayConfig.inbounds[0].protocol, "vless");
   assert.equal(xrayConfig.inbounds[0].settings.clients[0].id, "6b6fdf26-7f7d-42bf-85db-6a5556f81f18");
   assert.equal(xrayConfig.inbounds[0].streamSettings.security, "reality");
+  assert.equal(xrayConfig.api.services[0], "StatsService");
+  assert.equal(xrayConfig.policy.levels[0].statsUserUplink, true);
+  assert.equal(xrayConfig.policy.levels[0].statsUserDownlink, true);
 
   assert.match(hysteria.content, /type: userpass/);
   assert.match(hysteria.content, /hy2-secret/);
+  assert.match(hysteria.content, /trafficStats:/);
   assert.doesNotMatch(hysteria.content, /6b6fdf26-7f7d-42bf-85db-6a5556f81f18/);
+
+  const trafficManifest = JSON.parse(trafficStats.content);
+  assert.ok(trafficManifest.endpoints.some((endpoint) => endpoint.type === "xray"));
+  assert.ok(trafficManifest.endpoints.some((endpoint) => endpoint.type === "hysteria2"));
 });
 
 test("transit-relay runtime renderer emits realm config", () => {
@@ -42,6 +53,50 @@ test("transit-relay runtime renderer emits realm config", () => {
       }
     }
   ]);
+});
+
+test("anytls inbound renders sing-box config and passes validation", () => {
+  const desired = {
+    configVersion: 7,
+    desiredState: {
+      kind: "proxy-node",
+      inbounds: [
+        {
+          id: "inbound_anytls",
+          name: "SG AnyTLS",
+          protocol: PROTOCOLS.ANYTLS,
+          listen: "0.0.0.0",
+          port: 443,
+          config: {
+            tls: {
+              sni: "sg.example.com",
+              certPath: "/etc/kato/certs/fullchain.pem",
+              keyPath: "/etc/kato/certs/privkey.pem"
+            }
+          },
+          users: [
+            {
+              userId: "user_1",
+              credential: {
+                type: "anytls",
+                password: "anytls_secret"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  };
+  const bundle = renderRuntimeBundle(desired);
+  const singbox = bundle.files.find((file) => file.component === "sing-box");
+  assert.ok(singbox);
+  const config = JSON.parse(singbox.content);
+  assert.equal(config.inbounds[0].type, "anytls");
+  assert.equal(config.inbounds[0].listen_port, 443);
+  assert.equal(config.inbounds[0].users[0].password, "anytls_secret");
+  assert.equal(config.inbounds[0].tls.certificate_path, "/etc/kato/certs/fullchain.pem");
+  assert.doesNotThrow(() => validateRenderedBundle(bundle));
+  assert.equal(renderSingboxConfig(desired.desiredState.inbounds).outbounds[0].type, "direct");
 });
 
 test("runtime apply writes manifest and backs up existing runtime directory", async () => {

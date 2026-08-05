@@ -122,6 +122,16 @@ function buildSubscriptionNodes(user, plan, accessNodes, state) {
       };
     }
 
+    if (accessNode.protocol === PROTOCOLS.ANYTLS) {
+      const tls = inbound?.config?.tls || {};
+      return {
+        ...base,
+        password: user.credentials.anytlsPassword,
+        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || accessNode.host,
+        insecure: false
+      };
+    }
+
     return { ...base, raw: { accessNode, inbound, proxyNode, relay } };
   });
 }
@@ -154,6 +164,14 @@ export function buildUri(node) {
     params.push(`up=${node.upMbps}`);
     params.push(`down=${node.downMbps}`);
     return `hysteria2://${encodeURIComponent(node.password)}@${node.host}:${node.port}?${params.join("&")}#${encodeURIComponent(node.name)}`;
+  }
+
+  if (node.protocol === PROTOCOLS.ANYTLS) {
+    const params = [
+      `sni=${encodeURIComponent(node.sni)}`,
+      `insecure=${node.insecure ? "1" : "0"}`
+    ];
+    return `anytls://${encodeURIComponent(node.password)}@${node.host}:${node.port}?${params.join("&")}#${encodeURIComponent(node.name)}`;
   }
 
   throw httpError(`Unsupported subscription protocol: ${node.protocol}`, 400);
@@ -218,6 +236,21 @@ export function buildSingboxPayload(nodes) {
         };
       }
 
+      if (node.protocol === PROTOCOLS.ANYTLS) {
+        return {
+          type: "anytls",
+          tag: node.name,
+          server: node.host,
+          server_port: node.port,
+          password: node.password,
+          tls: {
+            enabled: true,
+            server_name: node.sni,
+            insecure: node.insecure
+          }
+        };
+      }
+
       throw httpError(`Unsupported subscription protocol: ${node.protocol}`, 400);
     })
   };
@@ -262,6 +295,18 @@ export function buildClashPayload(nodes) {
               "obfs-password": node.obfsPassword
             }
           : {})
+      };
+    }
+
+    if (node.protocol === PROTOCOLS.ANYTLS) {
+      return {
+        name: node.name,
+        type: "anytls",
+        server: node.host,
+        port: node.port,
+        password: node.password,
+        sni: node.sni,
+        "skip-cert-verify": node.insecure
       };
     }
 

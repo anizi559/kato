@@ -2,7 +2,7 @@
 
 自研代理管理系统 monorepo。
 
-当前版本：`0.5.0`
+当前版本：`0.6.0`
 
 已完成阶段：
 
@@ -11,13 +11,14 @@
 - 第三阶段：Agent 运行配置渲染、Xray/Hysteria2/Realm 配置落盘、备份、离线重放、Xray 配置 test 校验、托管进程启动/停止/状态检查。
 - 第四阶段（v0.4.x）：中文交互安装向导、五类角色一键安装/升级、HTTPS/证书自动化、前端工具站、安装 Token 弹窗、服务器管理分组。
 - 第五阶段（v0.5.0）：订阅服务器 Subscription Edge 正式落地，支持 sing-box / Clash Meta / URI+Base64 订阅、按权限组过滤节点、UA 自动识别格式、订阅 Token 重置、订阅相关系统设置。
+- 第六阶段（v0.6.0）：订阅入口缓存/限速/故障兜底；真实流量统计（Xray stats API + Hysteria2 Traffic Stats API，Agent 周期上报）；监控告警（离线/运行异常检测、Webhook/Telegram 通知、告警/审计/流量页面接入）；AnyTLS 协议支持（sing-box 服务端 + 订阅分发）。
 
 当前目录：
 
 - `apps/backend-core`：核心控制面。
 - `apps/agent`：Proxy Node / Transit Relay 共用轻量 Agent 骨架。
 - `apps/frontend-edge`：前端入口占位。
-  - `apps/subscription-edge`：订阅入口服务器，对外分发用户订阅。
+  - `apps/subscription-edge`：订阅入口服务器，对外分发用户订阅，支持缓存、限速和后端故障兜底。
 - `packages/shared`：共享协议常量和工具。
 - `configs`：示例配置。
 - `docs`：协议和阶段说明。

@@ -186,6 +186,16 @@ function renderProtocolUser(user, protocol, state) {
     };
   }
 
+  if (protocol === PROTOCOLS.ANYTLS) {
+    return {
+      ...common,
+      credential: {
+        type: "anytls",
+        password: user.credentials.anytlsPassword
+      }
+    };
+  }
+
   return {
     ...common,
     credential: {

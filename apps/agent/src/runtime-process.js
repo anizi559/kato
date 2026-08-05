@@ -172,6 +172,23 @@ export async function discoverRuntimeComponents(config) {
     });
   }
 
+  const singboxConfig = join(dir, "singbox", "config.json");
+  const singbox = await readJsonIfExists(singboxConfig);
+  if (singbox) {
+    components.push({
+      id: "sing-box",
+      component: "sing-box",
+      configPath: singboxConfig,
+      command: config.binaries?.singbox || "sing-box",
+      args: ["run", "-c", singboxConfig],
+      ports: (singbox.inbounds || []).map((inbound) => ({
+        protocol: "tcp",
+        host: inbound.listen || "0.0.0.0",
+        port: inbound.listen_port || inbound.port
+      }))
+    });
+  }
+
   return components;
 }
 

@@ -8,8 +8,10 @@ import { createSubscriptionEdgeApp } from "../src/server.js";
 
 async function startFakeBackend() {
   let captured = null;
+  let requestCount = 0;
   const server = createHttpServer(async (req, res) => {
     if (req.method === "GET" && req.url.startsWith("/api/v1/subscriptions/")) {
+      requestCount += 1;
       captured = {
         url: req.url,
         authorization: req.headers.authorization,
@@ -31,6 +33,7 @@ async function startFakeBackend() {
   return {
     url: `http://127.0.0.1:${address.port}`,
     captured: () => captured,
+    requestCount: () => requestCount,
     close: () => new Promise((resolve) => server.close(resolve))
   };
 }
@@ -51,7 +54,8 @@ async function startEdge(backend, options = {}) {
     backendUrl: backend.url,
     agentStatePath: statePath,
     pathPrefix: options.pathPrefix || "go",
-    requestTimeoutMs: 3000
+    requestTimeoutMs: 3000,
+    ...options
   });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const address = app.server.address();
@@ -124,4 +128,79 @@ test("subscription edge rejects config without backend or bad prefix", () => {
     () => createSubscriptionEdgeApp({ backendUrl: "http://x", pathPrefix: "bad path" }),
     /pathPrefix/
   );
+});
+
+test("subscription edge serves cached responses within ttl", async () => {
+  const backend = await startFakeBackend();
+  const edge = await startEdge(backend, { cacheTtlSeconds: 60 });
+  try {
+    const first = await fetch(`${edge.url}/go/sub_cached`);
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get("x-kato-cache"), "miss");
+    assert.equal(backend.requestCount(), 1);
+
+    const second = await fetch(`${edge.url}/go/sub_cached`);
+    assert.equal(second.status, 200);
+    assert.equal(second.headers.get("x-kato-cache"), "hit");
+    assert.equal(backend.requestCount(), 1);
+    assert.match(second.headers.get("cache-control"), /max-age=60/);
+  } finally {
+    await edge.close();
+    await backend.close();
+  }
+});
+
+test("subscription edge expires cache after ttl", async () => {
+  const backend = await startFakeBackend();
+  const edge = await startEdge(backend, { cacheTtlSeconds: 1, staleIfErrorSeconds: 0 });
+  try {
+    await fetch(`${edge.url}/go/sub_expire`);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const second = await fetch(`${edge.url}/go/sub_expire`);
+    assert.equal(second.status, 200);
+    assert.equal(second.headers.get("x-kato-cache"), "miss");
+    assert.equal(backend.requestCount(), 2);
+  } finally {
+    await edge.close();
+    await backend.close();
+  }
+});
+
+test("subscription edge rate limits per token", async () => {
+  const backend = await startFakeBackend();
+  const edge = await startEdge(backend, {
+    rateLimitPerMinute: 1,
+    rateLimitBurst: 1,
+    cacheTtlSeconds: 0
+  });
+  try {
+    const first = await fetch(`${edge.url}/go/sub_limited`);
+    assert.equal(first.status, 200);
+    const second = await fetch(`${edge.url}/go/sub_limited`);
+    assert.equal(second.status, 429);
+    const otherToken = await fetch(`${edge.url}/go/sub_other`);
+    assert.equal(otherToken.status, 200);
+  } finally {
+    await edge.close();
+    await backend.close();
+  }
+});
+
+test("subscription edge serves stale cache when backend is down", async () => {
+  const backend = await startFakeBackend();
+  const edge = await startEdge(backend, {
+    cacheTtlSeconds: 1,
+    staleIfErrorSeconds: 300
+  });
+  try {
+    await fetch(`${edge.url}/go/sub_stale`);
+    await backend.close();
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const stale = await fetch(`${edge.url}/go/sub_stale`);
+    assert.equal(stale.status, 200);
+    assert.equal(stale.headers.get("x-kato-cache"), "stale");
+    assert.deepEqual(await stale.json(), { version: 1 });
+  } finally {
+    await edge.close();
+  }
 });

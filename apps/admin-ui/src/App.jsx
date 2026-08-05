@@ -284,7 +284,7 @@ const resourceConfigs = {
     relationRows: [
       ["可见节点", "nodes"], ["订阅服务", () => "-"], ["配置版本", "configVersion"],
     ],
-    metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["Hysteria2", "hy2Password"]],
+    metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["Hysteria2", "hy2Password"], ["AnyTLS", "anytlsPassword"]],
     subscriptionLink: true,
     preview: (row) => `user: ${row.id}\nplan: ${row.plan}\nprotocols: ${row.protocols}\nsubscription: ${row.subscription}\nnodes: ${row.nodes}\ntraffic: ${row.trafficUsed}`,
   },
@@ -877,7 +877,7 @@ function countBy(items = [], key) {
   }, {});
 }
 
-function adaptBackendResources({ collections, agents: rawAgents, summary }) {
+function adaptBackendResources({ collections, agents: rawAgents, summary, alerts = [], auditLogs = [], trafficSummary = null }) {
   const plansRaw = collections.plans || [];
   const usersRaw = collections.users || [];
   const proxyRaw = collections["proxy-nodes"] || [];
@@ -929,7 +929,58 @@ function adaptBackendResources({ collections, agents: rawAgents, summary }) {
     "access-nodes": accessRaw.map((accessNode) => adaptAccessNode(accessNode, context)),
     "relay-rules": ruleRaw.map((rule) => adaptRelayRule(rule, context)),
     agents: agentsRaw.map((agent) => adaptAgent(agent, context)),
+    alerts: alerts.map((alert) => adaptAlert(alert)),
+    "audit-logs": auditLogs.map((entry) => adaptAuditLog(entry)),
+    traffic: (trafficSummary?.users || []).map((user) => adaptTrafficRow(user)),
     config: adaptConfigReleases(summary, agentsRaw),
+  };
+}
+
+function adaptAlert(alert) {
+  return {
+    id: alert.id,
+    resourceId: alert.id,
+    raw: alert,
+    name: alert.title || alert.type,
+    status: alert.status === "resolved" ? "已解决" : "未处理",
+    severity: alert.severity || "warning",
+    resourceType: alert.resourceType || "-",
+    resourceName: alert.resourceId || "-",
+    openedAt: isoText(alert.createdAt),
+    message: alert.message || "",
+  };
+}
+
+function adaptAuditLog(entry) {
+  return {
+    id: entry.id,
+    resourceId: entry.id,
+    raw: entry,
+    name: entry.action,
+    time: isoText(entry.createdAt),
+    actor: "admin",
+    action: entry.action,
+    resourceType: entry.resourceId ? "resource" : "-",
+    resourceName: entry.resourceId || "-",
+    sourceIp: "-",
+    status: "成功",
+    details: entry.details || {},
+  };
+}
+
+function adaptTrafficRow(user) {
+  return {
+    id: user.id,
+    resourceId: user.id,
+    raw: user,
+    name: user.name,
+    dimension: "用户",
+    inbound: "-",
+    upload: "-",
+    download: formatBytes(user.usedTrafficBytes || 0),
+    quota: user.trafficLimitBytes ? formatBytes(user.trafficLimitBytes) : "不限",
+    updatedAt: isoText(user.lastProxyUseAt, "未使用"),
+    status: "正常",
   };
 }
 
@@ -979,6 +1030,7 @@ function adaptUser(user, context) {
     configVersion: `v${context.summary?.version || 1}`,
     uuid: user.credentials?.vlessUuid || "-",
     hy2Password: user.credentials?.hysteria2Password || "-",
+    anytlsPassword: user.credentials?.anytlsPassword || "-",
     subscriptionToken: user.subscriptionToken || "",
     nodes: `${context.accessRaw.length} 个访问节点`,
     createdAt: isoText(user.createdAt),
@@ -1258,12 +1310,15 @@ const resourceFormConfigs = {
     fields: [
       { name: "name", label: "入站名称", type: "text", defaultValue: "" },
       { name: "proxyNodeId", label: "代理服务器", type: "select", options: (data) => optionRows(data["proxy-nodes"]), defaultValue: (data) => selectDefault(data["proxy-nodes"]) },
-      { name: "protocol", label: "协议", type: "select", defaultValue: "vless-reality", options: [{ label: "VLESS REALITY", value: "vless-reality" }, { label: "Hysteria2", value: "hysteria2" }] },
+      { name: "protocol", label: "协议", type: "select", defaultValue: "vless-reality", options: [{ label: "VLESS REALITY", value: "vless-reality" }, { label: "Hysteria2", value: "hysteria2" }, { label: "AnyTLS", value: "anytls" }] },
       { name: "port", label: "端口", type: "number", defaultValue: 443 },
       { name: "listen", label: "监听地址", type: "text", defaultValue: "0.0.0.0" },
       { name: "createDirectAccessNode", label: "同步创建 Direct 访问节点", type: "checkbox", defaultValue: true },
       { name: "dest", label: "REALITY Dest", type: "text", defaultValue: "www.microsoft.com:443" },
       { name: "sni", label: "HY2 SNI", type: "text", defaultValue: "" },
+      { name: "anytlsSni", label: "AnyTLS SNI", type: "text", defaultValue: "" },
+      { name: "certPath", label: "AnyTLS 证书路径", type: "text", defaultValue: "" },
+      { name: "keyPath", label: "AnyTLS 私钥路径", type: "text", defaultValue: "" },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -1274,6 +1329,9 @@ const resourceFormConfigs = {
       createDirectAccessNode: false,
       dest: item.raw?.config?.reality?.dest || "",
       sni: item.raw?.config?.tls?.sni || "",
+      anytlsSni: item.raw?.config?.tls?.sni || "",
+      certPath: item.raw?.config?.tls?.certPath || "",
+      keyPath: item.raw?.config?.tls?.keyPath || "",
     }),
     toApiInput: (values) => ({
       name: values.name,
@@ -1282,7 +1340,12 @@ const resourceFormConfigs = {
       port: toNumber(values.port, 443),
       listen: values.listen || "0.0.0.0",
       createDirectAccessNode: Boolean(values.createDirectAccessNode),
-      config: values.protocol === "hysteria2" ? { sni: values.sni } : { dest: values.dest },
+      config:
+        values.protocol === "hysteria2"
+          ? { sni: values.sni }
+          : values.protocol === "anytls"
+            ? { tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath } }
+            : { dest: values.dest },
     }),
   },
   "transit-relays": {
@@ -2408,6 +2471,10 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
     subscriptionTitle: "",
     defaultSubscriptionIntervalSeconds: 3600,
     subscriptionUserinfo: true,
+    agentOfflineSeconds: 180,
+    alertWebhookUrl: "",
+    telegramBotToken: "",
+    telegramChatId: "",
   });
 
   useEffect(() => {
@@ -2418,6 +2485,10 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
         subscriptionTitle: backendSettings.subscriptionTitle || "",
         defaultSubscriptionIntervalSeconds: Number(backendSettings.defaultSubscriptionIntervalSeconds) || 3600,
         subscriptionUserinfo: backendSettings.subscriptionUserinfo !== false,
+        agentOfflineSeconds: Number(backendSettings.agentOfflineSeconds) || 180,
+        alertWebhookUrl: backendSettings.alertWebhookUrl || "",
+        telegramBotToken: backendSettings.telegramBotToken || "",
+        telegramChatId: backendSettings.telegramChatId || "",
       });
     }
   }, [backendSettings]);
@@ -2488,9 +2559,11 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
 
           <section className="setting-panel">
             <h2>告警与报告</h2>
-            <label><span>Email 告警</span><select defaultValue="disabled"><option value="disabled">暂不启用</option><option value="enabled">启用</option></select></label>
-            <label><span>每日自检</span><select defaultValue="09:00"><option>09:00</option><option>18:00</option></select></label>
-            <label><span>严重告警</span><select defaultValue="instant"><option value="instant">立即通知</option><option value="digest">进入摘要</option></select></label>
+            <label><span>离线判定（秒）</span><input type="number" min="30" value={subscriptionSettings.agentOfflineSeconds} onChange={(event) => updateSubscriptionSetting("agentOfflineSeconds", Number(event.target.value))} /></label>
+            <label><span>通用 Webhook URL</span><input placeholder="https://example.com/hook（POST JSON）" value={subscriptionSettings.alertWebhookUrl} onChange={(event) => updateSubscriptionSetting("alertWebhookUrl", event.target.value)} /></label>
+            <label><span>Telegram Bot Token</span><input placeholder="123456:ABC-DEF" value={subscriptionSettings.telegramBotToken} onChange={(event) => updateSubscriptionSetting("telegramBotToken", event.target.value)} /></label>
+            <label><span>Telegram Chat ID</span><input placeholder="-100123456789" value={subscriptionSettings.telegramChatId} onChange={(event) => updateSubscriptionSetting("telegramChatId", event.target.value)} /></label>
+            <button className="button button--primary" type="button" onClick={() => onSaveBackendSettings && onSaveBackendSettings(subscriptionSettings)}><IconCircleCheck size={16} stroke={1.9} />保存告警设置</button>
           </section>
 
           <section className="setting-panel">
@@ -2548,7 +2621,7 @@ const requiredFormFields = {
   "relay-rules": ["name", "relayId", "inboundId", "entryPort", "transport"],
 };
 
-const supportedFormProtocols = new Set(["vless-reality", "hysteria2"]);
+const supportedFormProtocols = new Set(["vless-reality", "hysteria2", "anytls"]);
 const supportedFormTransports = new Set(["tcp", "udp"]);
 
 function validateResourceForm(sectionId, values, resourceData, item) {
@@ -3092,10 +3165,13 @@ export function App() {
 
     setApiStatus({ mode: "loading", message: "正在连接 Backend Core" });
     try {
-      const [summary, agentResult, settingsResult, ...collectionResults] = await Promise.all([
+      const [summary, agentResult, settingsResult, alertResult, auditResult, trafficResult, ...collectionResults] = await Promise.all([
         adminGet("/api/v1/admin/summary"),
         adminGet("/api/v1/admin/agents"),
         adminGet("/api/v1/admin/settings"),
+        adminGet("/api/v1/admin/alerts"),
+        adminGet("/api/v1/admin/audit-logs"),
+        adminGet("/api/v1/admin/traffic-summary"),
         ...backendCollections.map((collection) => adminGet(`/api/v1/admin/${collection}`)),
       ]);
       const collections = backendCollections.reduce((result, collection, index) => ({
@@ -3106,6 +3182,9 @@ export function App() {
         collections,
         agents: agentResult.agents || [],
         summary,
+        alerts: alertResult.items || [],
+        auditLogs: auditResult.items || [],
+        trafficSummary: trafficResult,
       });
       setResourceData((current) => ({ ...current, ...adapted }));
       setBackendSettings(settingsResult);

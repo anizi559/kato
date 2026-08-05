@@ -30,7 +30,11 @@ function emptyState() {
       subscriptionTitle: "",
       subscriptionUserinfo: true,
       subscriptionBaseUrl: "",
-      subscriptionPathPrefix: "go"
+      subscriptionPathPrefix: "go",
+      agentOfflineSeconds: 180,
+      alertWebhookUrl: "",
+      telegramBotToken: "",
+      telegramChatId: ""
     },
     adminUsers: [],
     adminSessions: [],
@@ -44,7 +48,8 @@ function emptyState() {
     transitRelays: [],
     accessNodes: [],
     relayRules: [],
-    auditLogs: []
+    auditLogs: [],
+    alerts: []
   };
 }
 
@@ -259,9 +264,13 @@ export class JsonStore {
     if (!agent) {
       throw httpError("Agent not found", 404);
     }
+    const wasOffline = agent.status === "offline";
     agent.status = "online";
     agent.lastSeenAt = nowIso();
     agent.actualState = actualState ?? {};
+    if (wasOffline) {
+      this.resolveAlerts("agent", agent.id, "agent.offline");
+    }
     await this.save();
     return agent;
   }
@@ -279,8 +288,182 @@ export class JsonStore {
     return agent.lastConfigReport;
   }
 
+  async recordTrafficUsage(agentId, { reports = [], reportedAt } = {}) {
+    const agent = this.findAgent(agentId);
+    if (!agent) {
+      throw httpError("Agent not found", 404);
+    }
+    const now = nowIso();
+    let addedBytes = 0;
+    const userIds = [];
+    for (const report of Array.isArray(reports) ? reports : []) {
+      const user = this.state.users.find((item) => item.id === report?.userId);
+      if (!user) {
+        continue;
+      }
+      const plan = user.planId ? this.state.plans.find((item) => item.id === user.planId) : null;
+      const uploadBytes = Math.max(0, Number(report?.uploadBytes) || 0);
+      const downloadBytes = Math.max(0, Number(report?.downloadBytes) || 0);
+      if (uploadBytes + downloadBytes <= 0) {
+        continue;
+      }
+      if (shouldResetUsage(user, plan, now)) {
+        user.usedTrafficBytes = 0;
+        user.lastUsageResetAt = now;
+      }
+      user.usedTrafficBytes = (user.usedTrafficBytes || 0) + uploadBytes + downloadBytes;
+      user.lastProxyUseAt = now;
+      addedBytes += uploadBytes + downloadBytes;
+      userIds.push(user.id);
+    }
+    agent.lastTrafficReport = {
+      reports,
+      reportedAt: reportedAt || now,
+      receivedAt: now
+    };
+    await this.save();
+    return { ok: true, addedBytes, userIds };
+  }
+
   listAgents() {
     return this.state.agents.map(publicAgent);
+  }
+
+  listAlerts({ status = null } = {}) {
+    const alerts = this.state.alerts
+      .filter((alert) => !status || alert.status === status)
+      .map(clone)
+      .reverse();
+    return alerts.slice(0, 500);
+  }
+
+  async resolveAlert(alertId) {
+    const alert = this.state.alerts.find((item) => item.id === alertId);
+    if (!alert) {
+      throw httpError("Alert not found", 404);
+    }
+    if (alert.status !== "resolved") {
+      alert.status = "resolved";
+      alert.resolvedAt = nowIso();
+      await this.save();
+    }
+    return clone(alert);
+  }
+
+  resolveAlerts(resourceType, resourceId, type = null) {
+    let changed = false;
+    for (const alert of this.state.alerts) {
+      if (alert.status !== "open") {
+        continue;
+      }
+      if (alert.resourceType !== resourceType || alert.resourceId !== resourceId) {
+        continue;
+      }
+      if (type && alert.type !== type) {
+        continue;
+      }
+      alert.status = "resolved";
+      alert.resolvedAt = nowIso();
+      changed = true;
+    }
+    return changed;
+  }
+
+  recordAlert({ type, severity = "warning", title, message, resourceType = null, resourceId = null }) {
+    const open = this.state.alerts.find(
+      (alert) => alert.status === "open" && alert.type === type && alert.resourceType === resourceType && alert.resourceId === resourceId
+    );
+    if (open) {
+      return open;
+    }
+    const alert = {
+      id: createId("alert"),
+      type,
+      severity,
+      title,
+      message,
+      resourceType,
+      resourceId,
+      status: "open",
+      createdAt: nowIso(),
+      resolvedAt: null
+    };
+    this.state.alerts.push(alert);
+    if (this.state.alerts.length > 2000) {
+      this.state.alerts.splice(0, this.state.alerts.length - 2000);
+    }
+    return alert;
+  }
+
+  async sweepAlerts() {
+    const now = nowIso();
+    const nowMs = Date.now();
+    const offlineMs = (Number(this.state.settings.agentOfflineSeconds) || 180) * 1000;
+    let changed = false;
+    const createdAlerts = [];
+
+    for (const agent of this.state.agents) {
+      const lastSeenMs = agent.lastSeenAt ? Date.parse(agent.lastSeenAt) : 0;
+      if (agent.status === "online" && (!lastSeenMs || nowMs - lastSeenMs > offlineMs)) {
+        agent.status = "offline";
+        changed = true;
+        const alert = this.recordAlert({
+          type: "agent.offline",
+          severity: "danger",
+          title: `Agent 离线：${agent.name}`,
+          message: `${agent.name}（${agent.role}）超过 ${Math.round(offlineMs / 1000)} 秒没有心跳`,
+          resourceType: "agent",
+          resourceId: agent.id
+        });
+        if (!createdAlerts.includes(alert)) {
+          createdAlerts.push(alert);
+        }
+      }
+      const runtimeError = agent.actualState?.runtime?.error;
+      const configFailed = agent.lastConfigReport?.status && agent.lastConfigReport.status !== "applied";
+      if (runtimeError || configFailed) {
+        changed = true;
+        const alert = this.recordAlert({
+          type: "agent.error",
+          severity: "warning",
+          title: `Agent 运行异常：${agent.name}`,
+          message: runtimeError || `配置应用失败：${agent.lastConfigReport.status}`,
+          resourceType: "agent",
+          resourceId: agent.id
+        });
+        if (!createdAlerts.includes(alert)) {
+          createdAlerts.push(alert);
+        }
+      }
+    }
+
+    if (changed) {
+      await this.save();
+    }
+    return { ok: true, changed, createdAlerts };
+  }
+
+  listAuditLogs({ limit = 200 } = {}) {
+    return this.state.auditLogs.slice(-Math.max(1, Math.min(limit, 500))).map(clone).reverse();
+  }
+
+  trafficSummary() {
+    const users = this.state.users
+      .map((user) => ({
+        id: user.id,
+        name: user.name,
+        usedTrafficBytes: user.usedTrafficBytes || 0,
+        trafficLimitBytes: user.trafficLimitBytes || null,
+        lastProxyUseAt: user.lastProxyUseAt || null
+      }))
+      .sort((left, right) => right.usedTrafficBytes - left.usedTrafficBytes)
+      .slice(0, 200);
+    const totalBytes = users.reduce((sum, user) => sum + user.usedTrafficBytes, 0);
+    return {
+      totalBytes,
+      userCount: users.length,
+      users
+    };
   }
 
   summary() {
@@ -319,7 +502,11 @@ export class JsonStore {
       "subscriptionTitle",
       "subscriptionUserinfo",
       "subscriptionBaseUrl",
-      "subscriptionPathPrefix"
+      "subscriptionPathPrefix",
+      "agentOfflineSeconds",
+      "alertWebhookUrl",
+      "telegramBotToken",
+      "telegramChatId"
     ]);
     for (const [key, value] of Object.entries(patch)) {
       if (!allowedKeys.has(key)) {
@@ -496,6 +683,7 @@ export class JsonStore {
       expiresAt: input.expiresAt || expiresFromPlan(plan),
       trafficLimitBytes: input.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null,
       usedTrafficBytes: input.usedTrafficBytes ?? 0,
+      lastUsageResetAt: null,
       access: {
         nodeGroups: asArray(input.access?.nodeGroups),
         relayGroups: asArray(input.access?.relayGroups),
@@ -504,7 +692,8 @@ export class JsonStore {
       credentials: {
         vlessUuid: input.credentials?.vlessUuid || createUuid(),
         vlessFlow: input.credentials?.vlessFlow || "xtls-rprx-vision",
-        hysteria2Password: input.credentials?.hysteria2Password || createSecret("hy2")
+        hysteria2Password: input.credentials?.hysteria2Password || createSecret("hy2"),
+        anytlsPassword: input.credentials?.anytlsPassword || createSecret("anytls")
       },
       limits: {
         deviceLimit: input.limits?.deviceLimit ?? null,
@@ -841,12 +1030,18 @@ function normalizeState(rawState) {
   for (const spec of Object.values(RESOURCE_SPECS)) {
     state[spec.stateKey] = Array.isArray(state[spec.stateKey]) ? state[spec.stateKey] : [];
   }
+  for (const user of state.users) {
+    if (user.lastUsageResetAt === undefined) {
+      user.lastUsageResetAt = null;
+    }
+  }
   state.bootstrapTokens = Array.isArray(state.bootstrapTokens) ? state.bootstrapTokens : [];
   state.adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
   state.adminSessions = Array.isArray(state.adminSessions) ? state.adminSessions : [];
   state.frontendTokens = Array.isArray(state.frontendTokens) ? state.frontendTokens : [];
   state.agents = Array.isArray(state.agents) ? state.agents : [];
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
+  state.alerts = Array.isArray(state.alerts) ? state.alerts : [];
   state.configRevision = state.configRevision || 1;
   state.configUpdatedAt = state.configUpdatedAt || state.createdAt || nowIso();
   state.schemaVersion = 2;
@@ -900,6 +1095,11 @@ function defaultInboundConfig(protocol, input, proxyNode) {
         type: input.obfs?.type || "salamander",
         password: input.obfs?.password || input.obfsPassword || createSecret("hy2_obfs")
       },
+      trafficStats: {
+        enabled: input.trafficStats?.enabled ?? true,
+        listen: input.trafficStats?.listen || null,
+        secret: input.trafficStats?.secret || createSecret("tstats")
+      },
       bandwidth: {
         upMbps: input.bandwidth?.upMbps ?? input.upMbps ?? 100,
         downMbps: input.bandwidth?.downMbps ?? input.downMbps ?? 100
@@ -908,11 +1108,22 @@ function defaultInboundConfig(protocol, input, proxyNode) {
     };
   }
 
+  if (protocol === PROTOCOLS.ANYTLS) {
+    return {
+      tls: {
+        certPath: input.tls?.certPath || input.tls?.certificatePath || input.certPath || null,
+        keyPath: input.tls?.keyPath || input.keyPath || null,
+        sni: input.tls?.sni || input.sni || proxyNode.entryDomain || proxyNode.publicHost || null
+      },
+      network: "tcp"
+    };
+  }
+
   throw httpError(`Unsupported inbound protocol: ${protocol}`, 400);
 }
 
 function normalizeInboundProtocol(protocol) {
-  if (![PROTOCOLS.VLESS_REALITY, PROTOCOLS.HYSTERIA2].includes(protocol)) {
+  if (![PROTOCOLS.VLESS_REALITY, PROTOCOLS.HYSTERIA2, PROTOCOLS.ANYTLS].includes(protocol)) {
     throw httpError(`Unsupported inbound protocol: ${protocol}`, 400);
   }
   return protocol;
@@ -955,6 +1166,24 @@ function clampInterval(value) {
     return 3600;
   }
   return Math.min(interval, 7 * 86400);
+}
+
+function shouldResetUsage(user, plan, nowIso) {
+  const policy = plan?.resetPolicy || "none";
+  if (policy === "none") {
+    return false;
+  }
+  if (!user.lastUsageResetAt) {
+    return true;
+  }
+  const elapsedMs = Date.parse(nowIso) - Date.parse(user.lastUsageResetAt);
+  if (policy === "daily") {
+    return elapsedMs >= 24 * 3600 * 1000;
+  }
+  if (policy === "monthly") {
+    return elapsedMs >= 30 * 24 * 3600 * 1000;
+  }
+  return false;
 }
 
 function withTimestamps(record) {

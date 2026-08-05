@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.5.0"
+APP_VERSION="0.6.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -53,6 +53,10 @@ agent_auto_start="${KATO_AGENT_AUTO_START:-false}"
 binary_validation="${KATO_BINARY_VALIDATION:-false}"
 subscription_path_prefix="${KATO_SUBSCRIPTION_PATH_PREFIX:-go}"
 subscription_port="${KATO_SUBSCRIPTION_PORT:-8081}"
+subscription_cache_ttl="${KATO_SUBSCRIPTION_CACHE_TTL:-60}"
+subscription_stale_seconds="${KATO_SUBSCRIPTION_STALE_SECONDS:-300}"
+subscription_rate_limit="${KATO_SUBSCRIPTION_RATE_LIMIT:-60}"
+subscription_rate_burst="${KATO_SUBSCRIPTION_RATE_BURST:-3}"
 tls_mode="${KATO_TLS_MODE:-none}"
 public_domain="${KATO_DOMAIN:-}"
 acme_email="${KATO_ACME_EMAIL:-}"
@@ -81,7 +85,7 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
   backend-core       面板后端 API、本地数据库、管理员账号初始化
   admin-ui           面板前端服务器：根路径工具站，隐藏路径进入管理后台
   subscription-edge  订阅入口服务器：对外分发用户订阅
-  proxy-node         代理节点 Agent，并安装 Xray / Hysteria2
+  proxy-node         代理节点 Agent，并安装 Xray / Hysteria2 / sing-box(AnyTLS)
   transit-relay      中转服务器 Agent，并安装 Realm
 
 通用参数：
@@ -131,6 +135,11 @@ Agent / 节点参数：
   --subscription-path-prefix <path>
                                   订阅链接路径前缀，默认：go（只含字母数字 _ -）
   --subscription-port <port>      订阅入口服务本地端口，默认：8081
+  --subscription-cache-ttl <sec>  订阅内容缓存时间，默认：60 秒
+  --subscription-stale-seconds <sec>
+                                  后端故障时允许继续使用旧缓存的时间，默认：300 秒
+  --subscription-rate-limit <n>   每个订阅 Token 每分钟请求上限，默认：60
+  --subscription-rate-burst <n>   每个订阅 Token 突发请求上限，默认：3
 
 常用示例：
   sudo ./install.sh
@@ -363,6 +372,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --subscription-port)
       subscription_port="${2:-}"
+      shift 2
+      ;;
+    --subscription-cache-ttl)
+      subscription_cache_ttl="${2:-}"
+      shift 2
+      ;;
+    --subscription-stale-seconds)
+      subscription_stale_seconds="${2:-}"
+      shift 2
+      ;;
+    --subscription-rate-limit)
+      subscription_rate_limit="${2:-}"
+      shift 2
+      ;;
+    --subscription-rate-burst)
+      subscription_rate_burst="${2:-}"
       shift 2
       ;;
     --tls-mode)
@@ -1792,6 +1817,30 @@ install_hysteria() {
   setcap 'cap_net_bind_service=+ep' /usr/local/bin/hysteria || warn "给 hysteria 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
 }
 
+install_singbox() {
+  if command_exists sing-box && [[ "$force_runtime_binaries" != "true" ]]; then
+    log "sing-box 已安装：$(sing-box version 2>/dev/null | head -n 1 || true)"
+    return
+  fi
+  local arch asset version tmp
+  case "$(uname -m)" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) die "不支持的 sing-box 架构：$(uname -m)" ;;
+  esac
+  version="${KATO_SINGBOX_VERSION:-$(github_latest_tag SagerNet/sing-box)}"
+  version="${version#v}"
+  [[ -n "$version" ]] || die "无法获取最新 sing-box 版本"
+  asset="sing-box-${version}-linux-${arch}.tar.gz"
+  tmp="$(mktemp -d)"
+  log "正在安装 sing-box ${version}"
+  curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
+  tar -xzf "${tmp}/${asset}" -C "$tmp"
+  find "$tmp" -maxdepth 2 -type f -name sing-box -exec install -m 0755 {} /usr/local/bin/sing-box \;
+  rm -rf "$tmp"
+  setcap 'cap_net_bind_service=+ep' /usr/local/bin/sing-box || warn "给 sing-box 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
+}
+
 install_realm() {
   if command_exists realm && [[ "$force_runtime_binaries" != "true" ]]; then
     log "Realm 已安装：$(realm --version 2>&1 | head -n 1 || true)"
@@ -1818,6 +1867,7 @@ install_runtime_binaries() {
     proxy-node)
       install_xray
       install_hysteria
+      install_singbox
       ;;
     transit-relay)
       install_realm
@@ -1876,7 +1926,8 @@ const config = {
   binaries: {
     xray: "/usr/local/bin/xray",
     hysteria: "/usr/local/bin/hysteria",
-    realm: "/usr/local/bin/realm"
+    realm: "/usr/local/bin/realm",
+    singbox: "/usr/local/bin/sing-box"
   }
 };
 process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
@@ -2000,6 +2051,10 @@ write_subscription_edge_config() {
   SUBSCRIPTION_EDGE_BACKEND_URL="$backend_url" \
   SUBSCRIPTION_EDGE_PORT="$subscription_port" \
   SUBSCRIPTION_EDGE_PREFIX="$subscription_path_prefix" \
+  SUBSCRIPTION_EDGE_CACHE_TTL="$subscription_cache_ttl" \
+  SUBSCRIPTION_EDGE_STALE_SECONDS="$subscription_stale_seconds" \
+  SUBSCRIPTION_EDGE_RATE_LIMIT="$subscription_rate_limit" \
+  SUBSCRIPTION_EDGE_RATE_BURST="$subscription_rate_burst" \
   "$install_root/node/bin/node" <<'NODE' >"$config_path"
 const config = {
   _说明: {
@@ -2009,14 +2064,22 @@ const config = {
     backendUrl: "面板后端 API 地址，订阅内容由后端动态生成。",
     agentStatePath: "Agent 注册状态文件，订阅服务用它向后端鉴权。",
     pathPrefix: "订阅链接路径前缀，例如 go，链接形如 https://域名/go/订阅token。",
-    requestTimeoutMs: "请求后端的最长等待时间。"
+    requestTimeoutMs: "请求后端的最长等待时间。",
+    cacheTtlSeconds: "订阅内容内存缓存时间（秒），默认 60。",
+    staleIfErrorSeconds: "后端故障时允许继续使用旧缓存的时间（秒），默认 300。",
+    rateLimitPerMinute: "每个订阅 Token 每分钟请求上限，默认 60。",
+    rateLimitBurst: "每个订阅 Token 突发请求上限，默认 3。"
   },
   host: "127.0.0.1",
   port: Number(process.env.SUBSCRIPTION_EDGE_PORT),
   backendUrl: process.env.SUBSCRIPTION_EDGE_BACKEND_URL,
   agentStatePath: "/var/lib/kato/agent-state.json",
   pathPrefix: process.env.SUBSCRIPTION_EDGE_PREFIX,
-  requestTimeoutMs: 10000
+  requestTimeoutMs: 10000,
+  cacheTtlSeconds: Number(process.env.SUBSCRIPTION_EDGE_CACHE_TTL),
+  staleIfErrorSeconds: Number(process.env.SUBSCRIPTION_EDGE_STALE_SECONDS),
+  rateLimitPerMinute: Number(process.env.SUBSCRIPTION_EDGE_RATE_LIMIT),
+  rateLimitBurst: Number(process.env.SUBSCRIPTION_EDGE_RATE_BURST)
 };
 process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
 NODE
@@ -2201,6 +2264,10 @@ load_existing_subscription_edge_config() {
   backend_url="${backend_url:-$(json_read "$config_path" '.backendUrl')}"
   subscription_port="${subscription_port:-$(json_read "$config_path" '.port')}"
   subscription_path_prefix="${subscription_path_prefix:-$(json_read "$config_path" '.pathPrefix')}"
+  subscription_cache_ttl="${subscription_cache_ttl:-$(json_read "$config_path" '.cacheTtlSeconds')}"
+  subscription_stale_seconds="${subscription_stale_seconds:-$(json_read "$config_path" '.staleIfErrorSeconds')}"
+  subscription_rate_limit="${subscription_rate_limit:-$(json_read "$config_path" '.rateLimitPerMinute')}"
+  subscription_rate_burst="${subscription_rate_burst:-$(json_read "$config_path" '.rateLimitBurst')}"
   load_existing_tls_config
 }
 

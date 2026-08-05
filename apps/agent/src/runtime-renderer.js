@@ -27,6 +27,8 @@ function renderProxyNodeRuntime(desired, files, warnings, options) {
   const state = desired.desiredState;
   const vlessInbounds = state.inbounds.filter((inbound) => inbound.protocol === PROTOCOLS.VLESS_REALITY);
   const hysteriaInbounds = state.inbounds.filter((inbound) => inbound.protocol === PROTOCOLS.HYSTERIA2);
+  const anytlsInbounds = state.inbounds.filter((inbound) => inbound.protocol === PROTOCOLS.ANYTLS);
+  const trafficStats = [];
 
   if (vlessInbounds.length) {
     files.push({
@@ -35,9 +37,14 @@ function renderProxyNodeRuntime(desired, files, warnings, options) {
       format: "json",
       content: `${JSON.stringify(renderXrayConfig(vlessInbounds), null, 2)}\n`
     });
+    trafficStats.push({
+      type: "xray",
+      apiAddress: "127.0.0.1:10085"
+    });
   }
 
-  for (const inbound of hysteriaInbounds) {
+  for (let index = 0; index < hysteriaInbounds.length; index += 1) {
+    const inbound = hysteriaInbounds[index];
     const rendered = renderHysteriaConfig(inbound, options);
     files.push({
       component: "hysteria2",
@@ -46,6 +53,33 @@ function renderProxyNodeRuntime(desired, files, warnings, options) {
       content: rendered.content
     });
     warnings.push(...rendered.warnings);
+    const traffic = inbound.config?.trafficStats || {};
+    if (traffic.enabled !== false) {
+      trafficStats.push({
+        type: "hysteria2",
+        inboundId: inbound.id,
+        url: `http://${traffic.listen || `127.0.0.1:${15001 + index}`}`,
+        secret: traffic.secret || ""
+      });
+    }
+  }
+
+  if (trafficStats.length) {
+    files.push({
+      component: "traffic-stats",
+      path: "traffic-stats.json",
+      format: "json",
+      content: `${JSON.stringify({ endpoints: trafficStats }, null, 2)}\n`
+    });
+  }
+
+  if (anytlsInbounds.length) {
+    files.push({
+      component: "sing-box",
+      path: "singbox/config.json",
+      format: "json",
+      content: `${JSON.stringify(renderSingboxConfig(anytlsInbounds), null, 2)}\n`
+    });
   }
 }
 
@@ -68,6 +102,11 @@ export function renderXrayConfig(inbounds) {
     log: {
       loglevel: "warning"
     },
+    api: {
+      tag: "api",
+      listen: "127.0.0.1:10085",
+      services: ["StatsService"]
+    },
     inbounds: inbounds.map(renderXrayVlessInbound),
     outbounds: [
       {
@@ -77,11 +116,21 @@ export function renderXrayConfig(inbounds) {
       {
         protocol: "blackhole",
         tag: "blocked"
+      },
+      {
+        protocol: "freedom",
+        tag: "api"
       }
     ],
     routing: {
       domainStrategy: "AsIs",
-      rules: []
+      rules: [
+        {
+          type: "field",
+          inboundTag: ["api"],
+          outboundTag: "api"
+        }
+      ]
     },
     policy: {
       levels: {
@@ -89,10 +138,45 @@ export function renderXrayConfig(inbounds) {
           handshake: 4,
           connIdle: 300,
           uplinkOnly: 2,
-          downlinkOnly: 5
+          downlinkOnly: 5,
+          statsUserUplink: true,
+          statsUserDownlink: true
         }
       }
     }
+  };
+}
+
+export function renderSingboxConfig(inbounds) {
+  return {
+    log: {
+      level: "warn"
+    },
+    inbounds: inbounds.map((inbound) => {
+      const tls = inbound.config?.tls || {};
+      return {
+        type: "anytls",
+        tag: inbound.id,
+        listen: inbound.listen || "0.0.0.0",
+        listen_port: inbound.port,
+        users: inbound.users.map((user) => ({
+          name: user.userId,
+          password: user.credential.password
+        })),
+        tls: {
+          enabled: true,
+          server_name: tls.sni || "localhost",
+          certificate_path: tls.certPath || "",
+          key_path: tls.keyPath || ""
+        }
+      };
+    }),
+    outbounds: [
+      {
+        type: "direct",
+        tag: "direct"
+      }
+    ]
   };
 }
 
@@ -162,6 +246,13 @@ export function renderHysteriaConfig(inbound, options = {}) {
     lines.push(`  key: ${quoteYaml(key)}`);
   }
 
+  const traffic = config.trafficStats || {};
+  if (traffic.enabled !== false) {
+    lines.push("trafficStats:");
+    lines.push(`  listen: ${quoteYaml(traffic.listen || "127.0.0.1:15001")}`);
+    lines.push(`  secret: ${quoteYaml(traffic.secret || "")}`);
+  }
+
   if (config.obfs?.enabled !== false) {
     lines.push("obfs:");
     lines.push("  type: salamander");
@@ -214,6 +305,9 @@ export function validateRenderedBundle(bundle) {
     if (file.component === "hysteria2") {
       validateHysteriaFile(file, errors);
     }
+    if (file.component === "sing-box") {
+      validateSingboxFile(file, errors);
+    }
   }
   if (errors.length) {
     throw new Error(`Rendered runtime config validation failed: ${errors.join("; ")}`);
@@ -252,6 +346,27 @@ function validateHysteriaFile(file, errors) {
   }
   if (!file.content.includes("listen:")) {
     errors.push(`${file.path}: missing listen`);
+  }
+}
+
+function validateSingboxFile(file, errors) {
+  let parsed;
+  try {
+    parsed = JSON.parse(file.content);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(parsed.inbounds) || !parsed.inbounds.length) {
+    errors.push(`${file.path}: missing anytls inbounds`);
+    return;
+  }
+  for (const inbound of parsed.inbounds) {
+    if (inbound.type !== "anytls") {
+      errors.push(`${file.path}: inbound type must be anytls`);
+    }
+    if (!Array.isArray(inbound.users) || !inbound.users.length) {
+      errors.push(`${file.path}: anytls inbound has no users`);
+    }
   }
 }
 

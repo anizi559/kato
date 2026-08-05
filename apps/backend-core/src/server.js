@@ -5,6 +5,7 @@ import { assertRole, jsonResponse, methodNotAllowed, notFound, VERSION } from ".
 import { createEtag, safeEqual, sha256 } from "./security.js";
 import { JsonStore } from "./store.js";
 import { generateSubscriptionContent } from "./subscription.js";
+import { notifyAlert } from "./notify.js";
 
 const DEFAULT_CONFIG = {
   host: "127.0.0.1",
@@ -27,6 +28,19 @@ export async function createBackendApp(config = DEFAULT_CONFIG) {
   validateConfig(resolvedConfig);
   const store = new JsonStore(resolvedConfig.storePath);
   await store.load();
+  await store.sweepAlerts();
+  const sweepTimer = setInterval(async () => {
+    try {
+      const result = await store.sweepAlerts();
+      const settings = store.getSettings();
+      for (const alert of result.createdAlerts || []) {
+        await notifyAlert(alert, settings);
+      }
+    } catch {
+      // 告警扫描失败不中断服务
+    }
+  }, 60000);
+  sweepTimer.unref?.();
 
   async function handler(req, res) {
     try {
@@ -236,6 +250,17 @@ async function route(req, res, store, config) {
     return jsonResponse(res, 200, { ok: true, report });
   }
 
+  const trafficMatch = path.match(/^\/api\/v1\/agents\/([^/]+)\/reports\/traffic$/);
+  if (trafficMatch) {
+    if (req.method !== "POST") {
+      return methodNotAllowed(res);
+    }
+    const agent = requireAgent(req, store, trafficMatch[1]);
+    const body = await readJson(req);
+    const result = await store.recordTrafficUsage(agent.id, body);
+    return jsonResponse(res, 200, result);
+  }
+
   return notFound(res);
 }
 
@@ -269,6 +294,42 @@ async function routeAdmin(req, res, store, path, url) {
       type: "relay"
     });
     return jsonResponse(res, 201, result);
+  }
+
+  if (segments[0] === "alerts" && segments.length === 1) {
+    if (req.method !== "GET") {
+      return methodNotAllowed(res);
+    }
+    return jsonResponse(res, 200, {
+      items: store.listAlerts({ status: url.searchParams.get("status") || null })
+    });
+  }
+
+  if (segments[0] === "alerts" && segments.length === 2) {
+    if (req.method !== "PATCH") {
+      return methodNotAllowed(res);
+    }
+    const body = await readJson(req);
+    if (body.status !== "resolved") {
+      throw Object.assign(new Error("Only resolved status is supported"), { statusCode: 400 });
+    }
+    return jsonResponse(res, 200, await store.resolveAlert(segments[1]));
+  }
+
+  if (segments[0] === "audit-logs") {
+    if (req.method !== "GET") {
+      return methodNotAllowed(res);
+    }
+    return jsonResponse(res, 200, {
+      items: store.listAuditLogs({ limit: Number(url.searchParams.get("limit") || 200) })
+    });
+  }
+
+  if (segments[0] === "traffic-summary") {
+    if (req.method !== "GET") {
+      return methodNotAllowed(res);
+    }
+    return jsonResponse(res, 200, store.trafficSummary());
   }
 
   if (segments[0] === "settings") {

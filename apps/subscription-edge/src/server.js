@@ -74,7 +74,9 @@ async function route(req, res, config, backendBase, cache, rateLimiters) {
       return res.end();
     }
 
-    const cached = readCache(cache, token, config);
+    const format = detectFormat(req.headers["user-agent"]);
+    const cacheId = `${token}:${format}`;
+    const cached = readCache(cache, cacheId, config);
     if (cached) {
       res.writeHead(200, {
         ...cached.headers,
@@ -87,7 +89,7 @@ async function route(req, res, config, backendBase, cache, rateLimiters) {
       userAgent: req.headers["user-agent"]
     });
     if (!upstream) {
-      const stale = readStaleCache(cache, token, config);
+      const stale = readStaleCache(cache, cacheId, config);
       if (stale) {
         res.writeHead(200, {
           ...stale.headers,
@@ -97,7 +99,7 @@ async function route(req, res, config, backendBase, cache, rateLimiters) {
       }
       return genericNotFound(res);
     }
-    writeCache(cache, token, upstream, config);
+    writeCache(cache, cacheId, upstream, config);
     res.writeHead(200, {
       ...upstream.headers,
       "x-kato-cache": "miss"
@@ -156,6 +158,7 @@ function writeCache(cache, token, upstream, config) {
     body: upstream.body,
     headers: {
       "content-type": upstream.headers["content-type"] || "application/octet-stream",
+      ...(upstream.headers["x-kato-format"] ? { "x-kato-format": upstream.headers["x-kato-format"] } : {}),
       ...(upstream.headers["subscription-userinfo"] ? { "subscription-userinfo": upstream.headers["subscription-userinfo"] } : {}),
       ...(upstream.headers["profile-update-interval"] ? { "profile-update-interval": upstream.headers["profile-update-interval"] } : {}),
       ...(upstream.headers["profile-title"] ? { "profile-title": upstream.headers["profile-title"] } : {}),
@@ -169,6 +172,17 @@ function writeCache(cache, token, upstream, config) {
     const oldestKey = cache.keys().next().value;
     cache.delete(oldestKey);
   }
+}
+
+export function detectFormat(userAgent) {
+  const ua = String(userAgent || "").toLowerCase();
+  if (ua.includes("sing-box") || ua.includes("singbox")) {
+    return "sing-box";
+  }
+  if (ua.includes("clash") || ua.includes("mihomo") || ua.includes("stash")) {
+    return "clash";
+  }
+  return "uri";
 }
 
 async function fetchSubscription(backendBase, token, config, { userAgent } = {}) {

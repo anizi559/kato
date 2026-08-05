@@ -12,18 +12,30 @@ async function startFakeBackend() {
   const server = createHttpServer(async (req, res) => {
     if (req.method === "GET" && req.url.startsWith("/api/v1/subscriptions/")) {
       requestCount += 1;
+      const ua = String(req.headers["user-agent"] || "").toLowerCase();
+      let contentType = "text/plain; charset=utf-8";
+      let format = "uri";
+      if (ua.includes("sing-box") || ua.includes("singbox")) {
+        contentType = "application/json; charset=utf-8";
+        format = "sing-box";
+      } else if (ua.includes("clash") || ua.includes("mihomo") || ua.includes("stash")) {
+        contentType = "text/yaml; charset=utf-8";
+        format = "clash";
+      }
       captured = {
         url: req.url,
         authorization: req.headers.authorization,
-        userAgent: req.headers["user-agent"]
+        userAgent: req.headers["user-agent"],
+        format
       };
       res.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
+        "content-type": contentType,
+        "x-kato-format": format,
         "subscription-userinfo": "download=123; total=456",
         "profile-update-interval": "3600",
         "profile-title": "Kato"
       });
-      return res.end('{"version":1}');
+      return res.end(format === "uri" ? "dXJpLWNvbnRlbnQ=" : `{"version":1,"format":"${format}"}`);
     }
     res.writeHead(500);
     res.end("boom");
@@ -82,7 +94,7 @@ test("subscription edge forwards subscription requests with agent auth", async (
     assert.match(response.headers.get("content-type"), /application\/json/);
     assert.equal(response.headers.get("subscription-userinfo"), "download=123; total=456");
     assert.equal(response.headers.get("profile-title"), "Kato");
-    assert.deepEqual(await response.json(), { version: 1 });
+    assert.deepEqual(await response.json(), { version: 1, format: "sing-box" });
 
     const captured = backend.captured();
     assert.equal(captured.url, "/api/v1/subscriptions/sub_abc123");
@@ -186,6 +198,37 @@ test("subscription edge rate limits per token", async () => {
   }
 });
 
+test("subscription edge caches per format so different clients get correct content", async () => {
+  const backend = await startFakeBackend();
+  const edge = await startEdge(backend, { cacheTtlSeconds: 60 });
+  try {
+    const singbox = await fetch(`${edge.url}/go/sub_formats`, {
+      headers: { "user-agent": "sing-box/1.13.0" }
+    });
+    assert.equal(singbox.status, 200);
+    assert.match(singbox.headers.get("content-type"), /application\/json/);
+    assert.equal(backend.requestCount(), 1);
+
+    const singboxAgain = await fetch(`${edge.url}/go/sub_formats`, {
+      headers: { "user-agent": "sing-box/1.13.0" }
+    });
+    assert.equal(singboxAgain.headers.get("x-kato-cache"), "hit");
+    assert.equal(backend.requestCount(), 1);
+
+    const clash = await fetch(`${edge.url}/go/sub_formats`, {
+      headers: { "user-agent": "ClashMeta/1.18.0" }
+    });
+    assert.equal(clash.status, 200);
+    assert.match(clash.headers.get("content-type"), /text\/yaml/);
+    assert.equal(backend.requestCount(), 2);
+    assert.equal(clash.headers.get("x-kato-cache"), "miss");
+    assert.deepEqual(await clash.json(), { version: 1, format: "clash" });
+  } finally {
+    await edge.close();
+    await backend.close();
+  }
+});
+
 test("subscription edge serves stale cache when backend is down", async () => {
   const backend = await startFakeBackend();
   const edge = await startEdge(backend, {
@@ -199,7 +242,7 @@ test("subscription edge serves stale cache when backend is down", async () => {
     const stale = await fetch(`${edge.url}/go/sub_stale`);
     assert.equal(stale.status, 200);
     assert.equal(stale.headers.get("x-kato-cache"), "stale");
-    assert.deepEqual(await stale.json(), { version: 1 });
+    assert.equal(await stale.text(), "dXJpLWNvbnRlbnQ=");
   } finally {
     await edge.close();
   }

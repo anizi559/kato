@@ -44,7 +44,10 @@ export function generateSubscriptionContent(state, token, { format = "auto", use
     format: resolvedFormat,
     content,
     contentType,
-    headers: buildSubscriptionHeaders(user, plan, settings)
+    headers: {
+      "x-kato-format": resolvedFormat,
+      ...buildSubscriptionHeaders(user, plan, settings)
+    }
   };
 }
 

@@ -194,7 +194,7 @@ function renderProtocolUser(user, protocol, state) {
   };
 }
 
-function isUserActive(user, state) {
+export function isUserActive(user, state) {
   if (!user.enabled) {
     return false;
   }
@@ -212,7 +212,7 @@ function isUserActive(user, state) {
   return true;
 }
 
-function userCanUseProtocol(user, protocol, state) {
+export function userCanUseProtocol(user, protocol, state) {
   const userProtocols = user.access?.protocols || [];
   if (userProtocols.length) {
     return userProtocols.includes(protocol);
@@ -225,7 +225,7 @@ function userCanUseProtocol(user, protocol, state) {
   return true;
 }
 
-function isAccessNodeUsable(accessNode, state) {
+export function isAccessNodeUsable(accessNode, state) {
   if (!accessNode.enabled) {
     return false;
   }

@@ -285,6 +285,7 @@ const resourceConfigs = {
       ["可见节点", "nodes"], ["订阅服务", () => "-"], ["配置版本", "configVersion"],
     ],
     metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["Hysteria2", "hy2Password"]],
+    subscriptionLink: true,
     preview: (row) => `user: ${row.id}\nplan: ${row.plan}\nprotocols: ${row.protocols}\nsubscription: ${row.subscription}\nnodes: ${row.nodes}\ntraffic: ${row.trafficUsed}`,
   },
   plans: {
@@ -978,6 +979,7 @@ function adaptUser(user, context) {
     configVersion: `v${context.summary?.version || 1}`,
     uuid: user.credentials?.vlessUuid || "-",
     hy2Password: user.credentials?.hysteria2Password || "-",
+    subscriptionToken: user.subscriptionToken || "",
     nodes: `${context.accessRaw.length} 个访问节点`,
     createdAt: isoText(user.createdAt),
     appliedAt: isoText(user.updatedAt || user.createdAt),
@@ -1907,7 +1909,7 @@ function KeyValueSection({ title, rows, compact = false }) {
   );
 }
 
-function GenericInspector({ item, config, onClose, onEdit, onDelete, canWrite }) {
+function GenericInspector({ item, config, onClose, onEdit, onDelete, canWrite, onResetSubscription, backendSettings }) {
   if (!item) return null;
 
   const detailRows = (config.detailRows || []).map(([label, value]) => ({ label, value: getValue(item, value) }));
@@ -1915,9 +1917,34 @@ function GenericInspector({ item, config, onClose, onEdit, onDelete, canWrite })
   const metricRows = (config.metricRows || []).map(([label, value]) => ({ label, value: getValue(item, value) }));
   const title = item.name || item.version || item.id;
   const status = item.status || "正常";
+  const baseUrl = String(backendSettings?.subscriptionBaseUrl || "").replace(/\/+$/, "");
+  const pathPrefix = String(backendSettings?.subscriptionPathPrefix || "go").replace(/^\/+|\/+$/g, "");
+  const subscriptionToken = item.raw?.subscriptionToken || item.subscriptionToken || "";
+  const subscriptionLink = baseUrl && subscriptionToken ? `${baseUrl}/${pathPrefix}/${subscriptionToken}` : "";
 
   return (
     <InspectorShell title={title} status={status} onClose={onClose}>
+      {config.subscriptionLink ? (
+        <div className="inspector__section">
+          <h3>订阅链接</h3>
+          <p className="drawer-note">把这个链接发给用户，客户端会自动更新节点配置。链接不含任何格式参数。</p>
+          {subscriptionLink ? (
+            <label>
+              <span>完整订阅链接</span>
+              <pre className="token-box"><button aria-label="复制订阅链接" type="button" onClick={() => copyToClipboard(subscriptionLink, "订阅链接")}><IconCopy size={16} stroke={1.9} /></button>{subscriptionLink}</pre>
+            </label>
+          ) : (
+            <p className="drawer-note">请先在“系统设置 → 订阅默认策略”里填写订阅入口地址。</p>
+          )}
+          <label>
+            <span>订阅 Token</span>
+            <pre className="token-box"><button aria-label="复制订阅 Token" type="button" onClick={() => copyToClipboard(subscriptionToken, "订阅 Token")}><IconCopy size={16} stroke={1.9} /></button>{subscriptionToken || "-"}</pre>
+          </label>
+          <div className="quick-actions">
+            <button className="button button--secondary" type="button" disabled={!canWrite} onClick={() => onResetSubscription && onResetSubscription(item)}><IconRefresh size={16} stroke={1.9} />重置订阅 Token</button>
+          </div>
+        </div>
+      ) : null}
       <KeyValueSection title="基本信息" rows={detailRows} />
 
       <div className="inspector__section">
@@ -1982,7 +2009,7 @@ function Pagination({ total }) {
   );
 }
 
-function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, onCloseInspector, onEditSelected, onDeleteSelected }) {
+function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, onCloseInspector, onEditSelected, onDeleteSelected, onResetSubscription, backendSettings }) {
   const PrimaryIcon = config.primaryIcon || IconPlus;
   const SecondaryIcon = config.secondaryIcon || IconPlus;
   const hasRows = rows.length > 0;
@@ -2039,6 +2066,8 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
           onEdit={() => onEditSelected(selectedItem)}
           onDelete={() => onDeleteSelected(selectedItem)}
           onClose={onCloseInspector}
+          onResetSubscription={onResetSubscription}
+          backendSettings={backendSettings}
         />
       ) : (
         <aside className="inspector inspector--empty">
@@ -2049,7 +2078,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
   );
 }
 
-function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap }) {
+function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("All");
   const [filterValues, setFilterValues] = useState(() => {
@@ -2132,6 +2161,8 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
       onCloseInspector={() => showToast("详情面板在桌面版保持固定")}
       onEditSelected={(item) => item && onEdit(sectionId, item)}
       onDeleteSelected={(item) => item && onDelete(sectionId, item)}
+      onResetSubscription={onResetSubscription}
+      backendSettings={backendSettings}
     />
   );
 }
@@ -2157,7 +2188,7 @@ function WorkspaceTabs({ items, activeId, onChange }) {
   );
 }
 
-function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap }) {
+function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
   const [activeTab, setActiveTab] = useState(initialTab || tabs[0]?.id);
   const tab = tabs.find((item) => item.id === activeTab) || tabs[0];
   const sectionId = tab?.sectionId;
@@ -2188,6 +2219,8 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
         onDelete={onDelete}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
+        onResetSubscription={onResetSubscription}
+        backendSettings={backendSettings}
       />
     </div>
   );
@@ -2367,11 +2400,34 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
   );
 }
 
-function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
+function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings, onSaveBackendSettings }) {
   const [apiSettings, setApiSettings] = useState(() => getAdminApiSettings());
+  const [subscriptionSettings, setSubscriptionSettings] = useState({
+    subscriptionBaseUrl: "",
+    subscriptionPathPrefix: "go",
+    subscriptionTitle: "",
+    defaultSubscriptionIntervalSeconds: 3600,
+    subscriptionUserinfo: true,
+  });
+
+  useEffect(() => {
+    if (backendSettings) {
+      setSubscriptionSettings({
+        subscriptionBaseUrl: backendSettings.subscriptionBaseUrl || "",
+        subscriptionPathPrefix: backendSettings.subscriptionPathPrefix || "go",
+        subscriptionTitle: backendSettings.subscriptionTitle || "",
+        defaultSubscriptionIntervalSeconds: Number(backendSettings.defaultSubscriptionIntervalSeconds) || 3600,
+        subscriptionUserinfo: backendSettings.subscriptionUserinfo !== false,
+      });
+    }
+  }, [backendSettings]);
 
   function updateApiSetting(key, value) {
     setApiSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateSubscriptionSetting(key, value) {
+    setSubscriptionSettings((current) => ({ ...current, [key]: value }));
   }
 
   return (
@@ -2415,9 +2471,12 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings }) {
 
           <section className="setting-panel">
             <h2>订阅默认策略</h2>
-            <label><span>订阅格式</span><select defaultValue="clash-singbox-uri"><option value="clash-singbox-uri">Clash / Sing-box / URI</option><option value="singbox">Sing-box</option><option value="clash">Clash</option></select></label>
-            <label><span>客户端兼容</span><select defaultValue="auto"><option value="auto">自动识别客户端</option><option value="strict">严格模式</option></select></label>
-            <label><span>隐藏不可用节点</span><select defaultValue="enabled"><option value="enabled">启用</option><option value="disabled">关闭</option></select></label>
+            <label><span>订阅入口地址</span><input placeholder="例如 https://katotool.com" value={subscriptionSettings.subscriptionBaseUrl} onChange={(event) => updateSubscriptionSetting("subscriptionBaseUrl", event.target.value)} /></label>
+            <label><span>订阅路径前缀</span><input placeholder="go" value={subscriptionSettings.subscriptionPathPrefix} onChange={(event) => updateSubscriptionSetting("subscriptionPathPrefix", event.target.value)} /></label>
+            <label><span>订阅标题</span><input placeholder="留空使用系统名称" value={subscriptionSettings.subscriptionTitle} onChange={(event) => updateSubscriptionSetting("subscriptionTitle", event.target.value)} /></label>
+            <label><span>更新间隔（秒）</span><input type="number" min="60" value={subscriptionSettings.defaultSubscriptionIntervalSeconds} onChange={(event) => updateSubscriptionSetting("defaultSubscriptionIntervalSeconds", Number(event.target.value))} /></label>
+            <label><span>流量信息响应头</span><select value={subscriptionSettings.subscriptionUserinfo ? "enabled" : "disabled"} onChange={(event) => updateSubscriptionSetting("subscriptionUserinfo", event.target.value === "enabled")}><option value="enabled">启用（客户端显示剩余流量/到期）</option><option value="disabled">关闭（更隐蔽）</option></select></label>
+            <button className="button button--primary" type="button" onClick={() => onSaveBackendSettings && onSaveBackendSettings(subscriptionSettings)}><IconCircleCheck size={16} stroke={1.9} />保存订阅设置</button>
           </section>
 
           <section className="setting-panel">
@@ -2598,6 +2657,14 @@ function isBlank(value) {
 function shellQuote(value) {
   const text = String(value ?? "");
   return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
+async function copyToClipboard(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    window.prompt(`请复制${label}`, text);
+  }
 }
 
 function roleInstallCommand({ role, backendUrl, token, name }) {
@@ -2907,13 +2974,13 @@ function LoginPage({ apiStatus, onLogin }) {
   );
 }
 
-function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap }) {
+function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, onSaveBackendSettings }) {
   if (activeSection === "overview") {
     return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} resourceData={resourceData} apiStatus={apiStatus} />;
   }
 
   if (activeSection === "settings") {
-    return <SettingsPage showToast={showToast} apiStatus={apiStatus} onSaveApiSettings={onSaveApiSettings} />;
+    return <SettingsPage showToast={showToast} apiStatus={apiStatus} onSaveApiSettings={onSaveApiSettings} backendSettings={backendSettings} onSaveBackendSettings={onSaveBackendSettings} />;
   }
 
   if (activeSection === "access-nodes") {
@@ -2927,6 +2994,8 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onDelete={onDelete}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
+        onResetSubscription={onResetSubscription}
+        backendSettings={backendSettings}
       />
     );
   }
@@ -2942,6 +3011,8 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onDelete={onDelete}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
+        onResetSubscription={onResetSubscription}
+        backendSettings={backendSettings}
       />
     );
   }
@@ -2957,6 +3028,8 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onDelete={onDelete}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
+        onResetSubscription={onResetSubscription}
+        backendSettings={backendSettings}
       />
     );
   }
@@ -2979,6 +3052,8 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
       onDelete={onDelete}
       onReload={onReload}
       onGenerateBootstrap={onGenerateBootstrap}
+      onResetSubscription={onResetSubscription}
+      backendSettings={backendSettings}
     />
   );
 }
@@ -2996,6 +3071,7 @@ export function App() {
   const [authReady, setAuthReady] = useState(demoModeEnabled);
   const [toast, setToast] = useState("");
   const [bootstrapResult, setBootstrapResult] = useState(null);
+  const [backendSettings, setBackendSettings] = useState(null);
 
   function showToast(message) {
     setToast(message);
@@ -3016,9 +3092,10 @@ export function App() {
 
     setApiStatus({ mode: "loading", message: "正在连接 Backend Core" });
     try {
-      const [summary, agentResult, ...collectionResults] = await Promise.all([
+      const [summary, agentResult, settingsResult, ...collectionResults] = await Promise.all([
         adminGet("/api/v1/admin/summary"),
         adminGet("/api/v1/admin/agents"),
+        adminGet("/api/v1/admin/settings"),
         ...backendCollections.map((collection) => adminGet(`/api/v1/admin/${collection}`)),
       ]);
       const collections = backendCollections.reduce((result, collection, index) => ({
@@ -3031,6 +3108,7 @@ export function App() {
         summary,
       });
       setResourceData((current) => ({ ...current, ...adapted }));
+      setBackendSettings(settingsResult);
       setApiStatus({
         mode: "connected",
         message: `Backend Connected · v${summary.version} · ${summary.counts?.users || 0} 用户`,
@@ -3235,6 +3313,33 @@ export function App() {
     }
   }
 
+  async function handleResetSubscription(item) {
+    const id = item?.raw?.id;
+    if (!id) {
+      showToast("请先登录 Backend Core");
+      return;
+    }
+    const confirmed = window.confirm(`确认重置用户 ${item.name || item.id} 的订阅 Token？旧链接将立即失效。`);
+    if (!confirmed) return;
+    try {
+      await adminPost(`/api/v1/admin/users/${id}/subscription-token`);
+      showToast("订阅 Token 已重置，旧链接已失效");
+      await loadBackendData({ silent: true });
+    } catch (error) {
+      showToast(`重置订阅 Token 失败：${error.message}`);
+    }
+  }
+
+  async function handleSaveBackendSettings(patch) {
+    try {
+      await adminPatch("/api/v1/admin/settings", patch);
+      showToast("系统设置已保存");
+      await loadBackendData({ silent: true });
+    } catch (error) {
+      showToast(`保存设置失败：${error.message}`);
+    }
+  }
+
   if (!authReady && !demoModeEnabled) {
     return <LoginPage apiStatus={apiStatus} onLogin={handleLogin} />;
   }
@@ -3253,6 +3358,9 @@ export function App() {
           resourceData={resourceData}
           apiStatus={apiStatus}
           onSaveApiSettings={handleSaveApiSettings}
+          onSaveBackendSettings={handleSaveBackendSettings}
+          onResetSubscription={handleResetSubscription}
+          backendSettings={backendSettings}
           onCreate={openCreateEditor}
           onEdit={openEditEditor}
           onDelete={handleDeleteResource}

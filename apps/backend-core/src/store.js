@@ -26,7 +26,11 @@ function emptyState() {
       timezone: "Asia/Shanghai",
       defaultLanguage: "zh-CN",
       defaultTrafficUnit: "GiB",
-      defaultSubscriptionIntervalSeconds: 3600
+      defaultSubscriptionIntervalSeconds: 3600,
+      subscriptionTitle: "",
+      subscriptionUserinfo: true,
+      subscriptionBaseUrl: "",
+      subscriptionPathPrefix: "go"
     },
     adminUsers: [],
     adminSessions: [],
@@ -240,6 +244,11 @@ export class JsonStore {
     return this.state.agents.find((agent) => agent.id === agentId);
   }
 
+  findAgentBySecret(secret) {
+    const secretHash = sha256(secret || "");
+    return this.state.agents.find((agent) => agent.secretHash === secretHash) || null;
+  }
+
   findDesiredState(agentId) {
     const agent = this.findAgent(agentId);
     return agent ? compileDesiredState(agent, this.state) : null;
@@ -294,6 +303,50 @@ export class JsonStore {
   listResources(collection) {
     const spec = resourceSpec(collection);
     return clone(this.state[spec.stateKey]);
+  }
+
+  getSettings() {
+    return clone(this.state.settings);
+  }
+
+  async updateSettings(patch = {}) {
+    const allowedKeys = new Set([
+      "systemName",
+      "timezone",
+      "defaultLanguage",
+      "defaultTrafficUnit",
+      "defaultSubscriptionIntervalSeconds",
+      "subscriptionTitle",
+      "subscriptionUserinfo",
+      "subscriptionBaseUrl",
+      "subscriptionPathPrefix"
+    ]);
+    for (const [key, value] of Object.entries(patch)) {
+      if (!allowedKeys.has(key)) {
+        throw httpError(`Unsupported setting: ${key}`, 400);
+      }
+      if (value !== undefined) {
+        this.state.settings[key] = value;
+      }
+    }
+    this.state.settings.defaultSubscriptionIntervalSeconds = clampInterval(
+      this.state.settings.defaultSubscriptionIntervalSeconds
+    );
+    if (typeof this.state.settings.subscriptionUserinfo !== "boolean") {
+      this.state.settings.subscriptionUserinfo = this.state.settings.subscriptionUserinfo !== false;
+    }
+    this.recordAudit("settings.updated", null, { keys: Object.keys(patch) });
+    await this.save();
+    return clone(this.state.settings);
+  }
+
+  async resetUserSubscriptionToken(userId) {
+    const user = this.requireExisting("users", userId);
+    user.subscriptionToken = createSecret("sub");
+    user.updatedAt = nowIso();
+    this.recordAudit("user.subscription_token_reset", user.id, { name: user.name });
+    await this.save();
+    return clone(user);
   }
 
   getResource(collection, id) {
@@ -894,6 +947,14 @@ function expiresFromPlan(plan) {
     return null;
   }
   return new Date(Date.now() + Number(plan.durationDays) * 86400 * 1000).toISOString();
+}
+
+function clampInterval(value) {
+  const interval = Number(value);
+  if (!Number.isInteger(interval) || interval < 60) {
+    return 3600;
+  }
+  return Math.min(interval, 7 * 86400);
 }
 
 function withTimestamps(record) {

@@ -4,6 +4,7 @@ import { URL } from "node:url";
 import { assertRole, jsonResponse, methodNotAllowed, notFound, VERSION } from "../../../packages/shared/src/protocol.js";
 import { createEtag, safeEqual, sha256 } from "./security.js";
 import { JsonStore } from "./store.js";
+import { generateSubscriptionContent } from "./subscription.js";
 
 const DEFAULT_CONFIG = {
   host: "127.0.0.1",
@@ -145,6 +146,28 @@ async function route(req, res, store, config) {
     return jsonResponse(res, 201, result);
   }
 
+  const subscriptionMatch = path.match(/^\/api\/v1\/subscriptions\/([^/]+)$/);
+  if (subscriptionMatch) {
+    if (req.method !== "GET") {
+      return methodNotAllowed(res);
+    }
+    const agent = store.findAgentBySecret(bearerToken(req));
+    if (!agent) {
+      throw Object.assign(new Error("Invalid subscription edge credential"), { statusCode: 401 });
+    }
+    if (agent.role !== "subscription-edge") {
+      throw Object.assign(new Error("Invalid subscription edge credential"), { statusCode: 403 });
+    }
+    const result = generateSubscriptionContent(store.state, subscriptionMatch[1], {
+      format: url.searchParams.get("format") || "auto",
+      userAgent: req.headers["user-agent"]
+    });
+    return textResponse(res, 200, result.content, {
+      "content-type": result.contentType,
+      ...result.headers
+    });
+  }
+
   if (path === "/api/v1/admin" || path.startsWith("/api/v1/admin/")) {
     await requireAdmin(req, config, store);
     return routeAdmin(req, res, store, path, url);
@@ -248,6 +271,25 @@ async function routeAdmin(req, res, store, path, url) {
     return jsonResponse(res, 201, result);
   }
 
+  if (segments[0] === "settings") {
+    if (req.method === "GET") {
+      return jsonResponse(res, 200, store.getSettings());
+    }
+    if (req.method === "PATCH") {
+      const body = await readJson(req);
+      return jsonResponse(res, 200, await store.updateSettings(body));
+    }
+    return methodNotAllowed(res);
+  }
+
+  if (segments[0] === "users" && segments.length === 3 && segments[2] === "subscription-token") {
+    if (req.method !== "POST") {
+      return methodNotAllowed(res);
+    }
+    const user = await store.resetUserSubscriptionToken(segments[1]);
+    return jsonResponse(res, 200, { user });
+  }
+
   const collection = segments[0];
   if (segments.length === 1) {
     if (req.method === "GET") {
@@ -322,6 +364,11 @@ function requireAgent(req, store, agentId) {
     throw Object.assign(new Error("Invalid agent token"), { statusCode: 401 });
   }
   return agent;
+}
+
+function textResponse(res, statusCode, body, headers = {}) {
+  res.writeHead(statusCode, headers);
+  res.end(body);
 }
 
 function bearerToken(req) {

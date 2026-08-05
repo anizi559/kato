@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.4.2"
+APP_VERSION="0.5.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -51,6 +51,8 @@ agent_name="${KATO_AGENT_NAME:-}"
 bootstrap_token="${KATO_BOOTSTRAP_TOKEN:-}"
 agent_auto_start="${KATO_AGENT_AUTO_START:-false}"
 binary_validation="${KATO_BINARY_VALIDATION:-false}"
+subscription_path_prefix="${KATO_SUBSCRIPTION_PATH_PREFIX:-go}"
+subscription_port="${KATO_SUBSCRIPTION_PORT:-8081}"
 tls_mode="${KATO_TLS_MODE:-none}"
 public_domain="${KATO_DOMAIN:-}"
 acme_email="${KATO_ACME_EMAIL:-}"
@@ -78,7 +80,7 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
 安装角色：
   backend-core       面板后端 API、本地数据库、管理员账号初始化
   admin-ui           面板前端服务器：根路径工具站，隐藏路径进入管理后台
-  subscription-edge  订阅入口服务器占位角色
+  subscription-edge  订阅入口服务器：对外分发用户订阅
   proxy-node         代理节点 Agent，并安装 Xray / Hysteria2
   transit-relay      中转服务器 Agent，并安装 Realm
 
@@ -125,11 +127,17 @@ Agent / 节点参数：
                                   是否在应用配置前调用二进制做配置校验
   --skip-runtime-binaries        不安装 Xray / Hysteria2 / Realm 等运行程序
 
+订阅入口参数：
+  --subscription-path-prefix <path>
+                                  订阅链接路径前缀，默认：go（只含字母数字 _ -）
+  --subscription-port <port>      订阅入口服务本地端口，默认：8081
+
 常用示例：
   sudo ./install.sh
   sudo ./install.sh --role backend-core --listen-port 8080
   sudo ./install.sh --role admin-ui --backend-url http://156.226.168.215:8080 --frontend-token front_xxx
   sudo ./install.sh --role proxy-node --backend-url http://panel:8080 --bootstrap-token boot_xxx
+  sudo ./install.sh --role subscription-edge --backend-url http://panel:8080 --bootstrap-token boot_xxx --subscription-path-prefix go
   sudo ./install.sh --upgrade --role admin-ui
 USAGE
 }
@@ -349,6 +357,14 @@ while [[ $# -gt 0 ]]; do
       binary_validation="${2:-}"
       shift 2
       ;;
+    --subscription-path-prefix)
+      subscription_path_prefix="${2:-}"
+      shift 2
+      ;;
+    --subscription-port)
+      subscription_port="${2:-}"
+      shift 2
+      ;;
     --tls-mode)
       tls_mode="${2:-}"
       tls_explicit="true"
@@ -494,6 +510,9 @@ detect_installed_role() {
   fi
   if [[ -z "$detected" && -f /etc/nginx/sites-available/kato-panel-frontend.conf ]]; then
     detected="admin-ui"
+  fi
+  if [[ -z "$detected" && -f /etc/kato/subscription-edge.json ]]; then
+    detected="subscription-edge"
   fi
   if [[ -n "$detected" ]]; then
     role="$detected"
@@ -967,6 +986,9 @@ prompt_agent_options() {
 
 prompt_edge_options() {
   prompt_line admin_ui_port "入口网页监听端口" "$admin_ui_port"
+  if [[ "$role" == "subscription-edge" ]]; then
+    prompt_line subscription_path_prefix "订阅链接路径前缀（尽量短、不含敏感词，只含字母数字 _ -）" "$subscription_path_prefix"
+  fi
 }
 
 collect_interactive_options() {
@@ -1964,6 +1986,240 @@ EOF
   curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
 }
 
+normalize_subscription_prefix() {
+  local value="${1:-go}"
+  value="${value#/}"
+  value="${value%/}"
+  [[ "$value" =~ ^[A-Za-z0-9_-]+$ ]] || die "订阅路径前缀只能包含字母、数字、下划线和中横线，例如 go"
+  printf '%s' "$value"
+}
+
+write_subscription_edge_config() {
+  local config_path="/etc/kato/subscription-edge.json"
+  local env_path="/etc/kato/subscription-edge.env"
+  SUBSCRIPTION_EDGE_BACKEND_URL="$backend_url" \
+  SUBSCRIPTION_EDGE_PORT="$subscription_port" \
+  SUBSCRIPTION_EDGE_PREFIX="$subscription_path_prefix" \
+  "$install_root/node/bin/node" <<'NODE' >"$config_path"
+const config = {
+  _说明: {
+    用途: "Kato 订阅入口服务器配置文件，由安装脚本生成。",
+    host: "订阅服务本地监听地址，只允许本机 Nginx 访问。",
+    port: "订阅服务本地端口，Nginx 会把 /前缀/ 请求转发到这里。",
+    backendUrl: "面板后端 API 地址，订阅内容由后端动态生成。",
+    agentStatePath: "Agent 注册状态文件，订阅服务用它向后端鉴权。",
+    pathPrefix: "订阅链接路径前缀，例如 go，链接形如 https://域名/go/订阅token。",
+    requestTimeoutMs: "请求后端的最长等待时间。"
+  },
+  host: "127.0.0.1",
+  port: Number(process.env.SUBSCRIPTION_EDGE_PORT),
+  backendUrl: process.env.SUBSCRIPTION_EDGE_BACKEND_URL,
+  agentStatePath: "/var/lib/kato/agent-state.json",
+  pathPrefix: process.env.SUBSCRIPTION_EDGE_PREFIX,
+  requestTimeoutMs: 10000
+};
+process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+NODE
+
+  cat >"$env_path" <<EOF
+# Kato 订阅入口服务器环境变量文件，由安装脚本生成。
+# 修改后需要执行：systemctl restart kato-subscription-edge
+NODE_ENV=production
+# 订阅入口 JSON 配置文件路径
+SUBSCRIPTION_EDGE_CONFIG=${config_path}
+EOF
+  chown root:kato "$config_path" "$env_path"
+  chmod 0640 "$config_path" "$env_path"
+}
+
+write_subscription_edge_service() {
+  write_systemd_service "kato-subscription-edge" "[Unit]
+Description=Kato 订阅入口服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kato
+Group=kato
+WorkingDirectory=${source_dir}
+EnvironmentFile=/etc/kato/subscription-edge.env
+ExecStart=${install_root}/node/bin/node apps/subscription-edge/src/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/kato /var/log/kato
+
+[Install]
+WantedBy=multi-user.target"
+}
+
+wait_for_subscription_edge() {
+  local url="http://127.0.0.1:${subscription_port}/health"
+  for _ in $(seq 1 30); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 1
+  done
+  journalctl -u kato-subscription-edge.service -n 80 --no-pager >&2 || true
+  die "订阅入口服务健康检查失败，请查看上方日志"
+}
+
+configure_subscription_edge_nginx() {
+  local conf="/etc/nginx/sites-available/kato-subscription-edge.conf"
+  local prefix="${subscription_path_prefix}"
+  if [[ "$admin_ui_port" == "80" && -e /etc/nginx/sites-enabled/default ]]; then
+    rm -f /etc/nginx/sites-enabled/default
+  fi
+
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    ensure_tls_certificate
+    local cert_dir
+    cert_dir="$(tls_cert_dir)"
+    cat >"$conf" <<EOF
+server {
+    listen ${admin_ui_port} default_server;
+    listen [::]:${admin_ui_port} default_server;
+    server_name ${public_domain};
+
+    location = /health {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://${public_domain}:${https_port}\$request_uri;
+    }
+}
+
+server {
+    listen ${https_port} ssl http2 default_server;
+    listen [::]:${https_port} ssl http2 default_server;
+    server_name ${public_domain};
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_session_cache shared:KATO_SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location = /health {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location /${prefix}/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_pass http://127.0.0.1:${subscription_port};
+    }
+
+    location / {
+        return 404;
+    }
+}
+EOF
+  else
+    write_tls_state
+    cat >"$conf" <<EOF
+server {
+    listen ${admin_ui_port} default_server;
+    listen [::]:${admin_ui_port} default_server;
+    server_name _;
+
+    location = /health {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location /${prefix}/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_pass http://127.0.0.1:${subscription_port};
+    }
+
+    location / {
+        return 404;
+    }
+}
+EOF
+  fi
+  ln -sfn "$conf" "/etc/nginx/sites-enabled/kato-subscription-edge.conf"
+  nginx -t
+  systemctl reload nginx.service
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    curl -fsS --resolve "${public_domain}:${https_port}:127.0.0.1" "https://${public_domain}:${https_port}/health" >/dev/null
+  else
+    curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
+  fi
+}
+
+install_subscription_edge() {
+  log "正在安装订阅入口服务器 subscription-edge"
+  validate_tls_options
+  install_nginx
+  if [[ -z "$backend_url" ]]; then
+    die "缺少后端 API 地址，请传入 --backend-url；也可以只填 后端IP:8080"
+  fi
+  backend_url="$(normalize_backend_url "$backend_url")"
+  subscription_path_prefix="$(normalize_subscription_prefix "$subscription_path_prefix")"
+  subscription_port="${subscription_port:-8081}"
+
+  install_agent_role
+  write_subscription_edge_config
+  write_subscription_edge_service
+  systemctl daemon-reload
+  systemctl enable --now kato-subscription-edge.service
+  systemctl restart kato-subscription-edge.service
+  wait_for_subscription_edge
+  configure_subscription_edge_nginx
+
+  log "订阅入口服务器安装完成"
+  if [[ "$tls_mode" == "letsencrypt" ]]; then
+    log "订阅链接入口：https://${public_domain}:${https_port}/${subscription_path_prefix}/订阅token"
+  else
+    log "订阅链接入口：http://$(public_ipv4):${admin_ui_port}/${subscription_path_prefix}/订阅token"
+  fi
+  log "订阅链接格式：入口地址 + ${subscription_path_prefix}/ + 用户订阅 token"
+}
+
+load_existing_subscription_edge_config() {
+  local config_path="/etc/kato/subscription-edge.json"
+  [[ -f "$config_path" ]] || return 0
+  backend_url="${backend_url:-$(json_read "$config_path" '.backendUrl')}"
+  subscription_port="${subscription_port:-$(json_read "$config_path" '.port')}"
+  subscription_path_prefix="${subscription_path_prefix:-$(json_read "$config_path" '.pathPrefix')}"
+  load_existing_tls_config
+}
+
+upgrade_subscription_edge() {
+  log "正在升级订阅入口服务器 subscription-edge"
+  load_existing_subscription_edge_config
+  load_existing_agent_config
+  if can_prompt; then
+    prompt_tls_options
+  fi
+  if [[ -z "$backend_url" ]]; then
+    can_prompt || die "未读取到后端 API 地址，请传入 --backend-url"
+    prompt_required backend_url "未读取到后端 API 地址，请输入，例如 http://后端IP:8080"
+  fi
+  create_upgrade_backup
+  install_subscription_edge
+  log "订阅入口服务器升级完成，当前版本：${APP_VERSION}"
+}
+
 json_read() {
   local file="$1"
   local expr="$2"
@@ -2091,7 +2347,7 @@ upgrade_agent_role() {
   fi
   create_upgrade_backup
   case "$role" in
-    frontend-edge|subscription-edge)
+    frontend-edge)
       install_edge_placeholder "$role"
       install_agent_role
       ;;
@@ -2118,8 +2374,7 @@ run_install_action() {
       install_agent_role
       ;;
     subscription-edge)
-      install_edge_placeholder "subscription-edge"
-      install_agent_role
+      install_subscription_edge
       ;;
     proxy-node|transit-relay)
       install_agent_role
@@ -2138,8 +2393,11 @@ run_upgrade_action() {
     admin-ui)
       upgrade_admin_ui
       ;;
-    frontend-edge|subscription-edge|proxy-node|transit-relay)
+    frontend-edge|proxy-node|transit-relay)
       upgrade_agent_role
+      ;;
+    subscription-edge)
+      upgrade_subscription_edge
       ;;
     *)
       die "不支持的升级角色：${role}"

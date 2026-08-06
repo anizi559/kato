@@ -49,6 +49,7 @@ async function seedSubscriptions(app) {
     publicHost: "hk.example.com",
     entryDomain: "hk.example.com",
     privateIp: "10.0.0.2",
+    region: "HK",
     groups: ["premium"]
   });
   const vlessInbound = await adminPost(app, "node-inbounds", {
@@ -128,45 +129,91 @@ test("subscription endpoint returns sing-box json with visible nodes and userinf
   }
 });
 
-test("subscription filters nodes by plan protocols, groups, udp flag and enabled state", async () => {
+test("subscription supports all protocols and filters by regions, groups and enabled state", async () => {
   const app = await startTestServer();
   try {
-    const { user, agent, vlessInbound, hy2Inbound } = await seedSubscriptions(app);
+    const { user, agent, vlessInbound } = await seedSubscriptions(app);
 
-    const onlyTcpPlan = await adminPost(app, "plans", {
-      name: "Tcp Only",
-      allowedProtocols: [PROTOCOLS.VLESS_REALITY],
-      allowUdp: false
+    const jpProxy = await adminPost(app, "proxy-nodes", {
+      name: "jp-01",
+      publicHost: "jp.example.com",
+      entryDomain: "jp.example.com",
+      region: "JP",
+      groups: ["default"]
     });
-    const tcpUser = await adminPost(app, "users", {
+    await adminPost(app, "node-inbounds", {
+      proxyNodeId: jpProxy.id,
+      name: "JP VLESS",
+      protocol: PROTOCOLS.VLESS_REALITY,
+      port: 8443,
+      groups: ["default"]
+    });
+
+    // 权限组不再限制协议：即使 plan 只写了 vless，hysteria2 节点也会下发
+    const protocolIgnored = await adminPost(app, "plans", {
+      name: "Protocol Ignored",
+      allowedProtocols: [PROTOCOLS.VLESS_REALITY]
+    });
+    const protocolIgnoredUser = await adminPost(app, "users", {
       name: "carol",
-      planId: onlyTcpPlan.id
+      planId: protocolIgnored.id
     });
-    const tcpResponse = await fetchSubscription(app, agent, tcpUser.subscriptionToken);
-    const tcpText = Buffer.from(await tcpResponse.text(), "base64").toString("utf8");
-    assert.match(tcpText, /^vless:\/\//m);
-    assert.doesNotMatch(tcpText, /^hysteria2:\/\//m);
+    const protocolIgnoredText = Buffer.from(
+      await (await fetchSubscription(app, agent, protocolIgnoredUser.subscriptionToken)).text(),
+      "base64"
+    ).toString("utf8");
+    assert.match(protocolIgnoredText, /^vless:\/\//m);
+    assert.match(protocolIgnoredText, /^hysteria2:\/\//m);
 
-    const accessNodes = await adminList(app, "access-nodes");
-    const vlessAccess = accessNodes.find((item) => item.inboundId === vlessInbound.id);
-    const hy2Access = accessNodes.find((item) => item.inboundId === hy2Inbound.id);
-    await adminPatch(app, `access-nodes/${vlessAccess.id}`, { enabled: false });
+    // 区域过滤：pro 只允许 HK -> 只有香港节点
+    const hkOnlyPlan = await adminPost(app, "plans", {
+      name: "HK Only",
+      allowedRegions: ["HK"]
+    });
+    const hkOnlyUser = await adminPost(app, "users", {
+      name: "hk-user",
+      planId: hkOnlyPlan.id
+    });
+    const hkOnlyText = Buffer.from(
+      await (await fetchSubscription(app, agent, hkOnlyUser.subscriptionToken)).text(),
+      "base64"
+    ).toString("utf8");
+    assert.match(hkOnlyText, /hk\.example\.com/m);
+    assert.doesNotMatch(hkOnlyText, /jp\.example\.com/m);
 
-    const response = await fetchSubscription(app, agent, user.subscriptionToken);
-    const text = Buffer.from(await response.text(), "base64").toString("utf8");
-    assert.match(text, /^hysteria2:\/\//m);
-    assert.doesNotMatch(text, /^vless:\/\//m);
+    // 用户级区域覆盖：plan 允许 HK，用户覆盖为 JP
+    const jpOverrideUser = await adminPost(app, "users", {
+      name: "jp-override",
+      planId: hkOnlyPlan.id,
+      access: { regions: ["JP"] }
+    });
+    const jpOverrideText = Buffer.from(
+      await (await fetchSubscription(app, agent, jpOverrideUser.subscriptionToken)).text(),
+      "base64"
+    ).toString("utf8");
+    assert.match(jpOverrideText, /jp\.example\.com/m);
+    assert.doesNotMatch(jpOverrideText, /hk\.example\.com/m);
 
+    // 分组过滤仍然生效
     const wrongGroupUser = await adminPost(app, "users", {
       name: "dave",
-      planId: onlyTcpPlan.id,
+      planId: hkOnlyPlan.id,
       access: { nodeGroups: ["free"] }
     });
     const wrongGroupResponse = await fetchSubscription(app, agent, wrongGroupUser.subscriptionToken);
     assert.equal(wrongGroupResponse.status, 200);
     const wrongGroupText = Buffer.from(await wrongGroupResponse.text(), "base64").toString("utf8");
     assert.equal(wrongGroupText.trim(), "");
-    assert.ok(hy2Access);
+
+    // 停用节点仍然隐藏
+    const accessNodes = await adminList(app, "access-nodes");
+    const vlessAccess = accessNodes.find((item) => item.inboundId === vlessInbound.id);
+    await adminPatch(app, `access-nodes/${vlessAccess.id}`, { enabled: false });
+    const disabledText = Buffer.from(
+      await (await fetchSubscription(app, agent, user.subscriptionToken)).text(),
+      "base64"
+    ).toString("utf8");
+    assert.doesNotMatch(disabledText, /hk\.example\.com:443/m);
   } finally {
     await app.close();
   }

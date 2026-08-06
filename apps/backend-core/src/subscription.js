@@ -1,5 +1,5 @@
 import { PROTOCOLS } from "../../../packages/shared/src/protocol.js";
-import { isAccessNodeUsable, isUserActive, userCanUseProtocol } from "./desired-state.js";
+import { isAccessNodeUsable, isUserActive } from "./desired-state.js";
 
 export const SUBSCRIPTION_FORMATS = Object.freeze(["auto", "sing-box", "clash", "uri"]);
 
@@ -56,11 +56,13 @@ function visibleAccessNodes(state, user, plan) {
     if (!isAccessNodeUsable(accessNode, state)) {
       return false;
     }
-    if (accessNode.protocol === PROTOCOLS.HYSTERIA2 && plan && plan.allowUdp === false) {
-      return false;
-    }
-    if (!userCanUseProtocol(user, accessNode.protocol, state)) {
-      return false;
+
+    const regions = nonEmpty(user.access.regions, plan?.allowedRegions);
+    if (regions.length) {
+      const proxyNode = state.proxyNodes.find((item) => item.id === accessNode.proxyNodeId);
+      if (!proxyNode || !regions.includes(proxyNode.region)) {
+        return false;
+      }
     }
 
     const nodeGroups = nonEmpty(user.access.nodeGroups, plan?.allowedNodeGroups);

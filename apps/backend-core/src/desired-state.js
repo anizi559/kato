@@ -223,15 +223,7 @@ export function isUserActive(user, state) {
 }
 
 export function userCanUseProtocol(user, protocol, state) {
-  const userProtocols = user.access?.protocols || [];
-  if (userProtocols.length) {
-    return userProtocols.includes(protocol);
-  }
-  const plan = state.plans.find((item) => item.id === user.planId);
-  const planProtocols = plan?.allowedProtocols || [];
-  if (planProtocols.length) {
-    return planProtocols.includes(protocol);
-  }
+  // 权限组不再区分协议：所有权限组支持所有协议
   return true;
 }
 

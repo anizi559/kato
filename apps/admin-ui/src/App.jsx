@@ -94,7 +94,8 @@ const columns = {
     { key: "status", label: "状态", width: "68px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "trafficQuota", label: "流量额度", width: "92px" },
     { key: "duration", label: "有效期", width: "76px" },
-    { key: "protocols", label: "协议", width: "96px" },
+    { key: "regions", label: "允许区域", width: "110px" },
+    { key: "nodeGroups", label: "节点组", width: "96px" },
     { key: "accessNodes", label: "节点数", width: "72px" },
     { key: "userCount", label: "用户", width: "62px" },
     { key: "configVersion", label: "版本", width: "52px" },
@@ -104,6 +105,7 @@ const columns = {
     { key: "type", label: "类型", width: "56px" },
     { key: "protocol", label: "协议", width: "54px" },
     { key: "displayHost", label: "显示主机", width: "160px" },
+    { key: "region", label: "区域", width: "70px" },
     { key: "port", label: "端口", width: "54px" },
     { key: "proxyNode", label: "代理服务器", width: "94px" },
     { key: "transitRelay", label: "中转", width: "80px" },
@@ -280,7 +282,7 @@ const resourceConfigs = {
     ],
     detailRows: [
       ["用户 ID", "id"], ["权限组", "plan"], ["到期时间", "expiresAt"], ["流量用量", "trafficUsed"],
-      ["协议权限", "protocols"], ["订阅状态", "subscription"], ["创建时间", "createdAt"],
+      ["可见区域", "regions"], ["订阅状态", "subscription"], ["创建时间", "createdAt"],
     ],
     relationRows: [
       ["可见节点", "nodes"], ["订阅服务", () => "-"], ["配置版本", "configVersion"],
@@ -297,16 +299,14 @@ const resourceConfigs = {
     tableLabel: "权限组列表",
     primaryAction: "新建权限组",
     secondaryAction: "编辑排序",
-    searchPlaceholder: "搜索权限组名称、协议或额度...",
-    searchKeys: ["id", "name", "trafficQuota", "protocols"],
+    searchPlaceholder: "搜索权限组名称、区域或额度...",
+    searchKeys: ["id", "name", "trafficQuota", "regions"],
     segments: [{ label: "All", value: "All" }, { label: "启用", value: "启用" }, { label: "停用", value: "停用" }],
     segmentKey: "status",
     filters: [
-      { key: "protocols", label: "协议", options: ["全部", "VLESS", "VLESS, HY2"] },
-      { key: "udp", label: "UDP", options: ["全部", "是", "否"] },
       { key: "status", label: "状态", options: ["全部", "启用", "停用"] },
     ],
-    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["协议", "protocols"], ["允许 UDP", "udp"], ["HY2 速率", "hy2Speed"]],
+    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["允许区域", "regions"], ["允许节点组", "nodeGroups"], ["HY2 速率", "hy2Speed"]],
     relationRows: [["访问节点", "accessNodes"], ["用户数量", "userCount"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `plan: ${row.id}\ntraffic_quota: ${row.trafficQuota}\nduration: ${row.duration}\nprotocols: ${row.protocols}\naccess_nodes: ${row.accessNodes}\nusers: ${row.userCount}`,
@@ -987,7 +987,6 @@ function adaptTrafficRow(user) {
 
 function adaptPlan(plan, context) {
   const userCount = context.usersRaw.filter((user) => user.planId === plan.id).length;
-  const protocols = protocolListLabel(plan.allowedProtocols || [], "继承默认");
   return {
     id: plan.name || plan.id,
     resourceId: plan.id,
@@ -998,10 +997,10 @@ function adaptPlan(plan, context) {
     status: enabledLabel(plan, "启用", "停用"),
     trafficQuota: formatBytes(plan.trafficLimitBytes),
     duration: plan.durationDays ? `${plan.durationDays} 天` : "不限",
-    protocols,
+    regions: plan.allowedRegions?.length ? plan.allowedRegions.join(", ") : "全部",
+    nodeGroups: plan.allowedNodeGroups?.length ? plan.allowedNodeGroups.join(", ") : "全部",
     accessNodes: `${context.accessRaw.length} 个`,
     userCount: String(userCount),
-    udp: plan.allowUdp === false ? "否" : "是",
     hy2Speed: `${plan.hysteria2?.upMbps || 0} / ${plan.hysteria2?.downMbps || 0} Mbps`,
     configVersion: `v${context.summary?.version || 1}`,
     createdAt: isoText(plan.createdAt),
@@ -1011,9 +1010,8 @@ function adaptPlan(plan, context) {
 
 function adaptUser(user, context) {
   const plan = context.plansById.get(user.planId);
-  const inheritedProtocols = plan?.allowedProtocols || [];
-  const protocols = user.access?.protocols?.length ? user.access.protocols : inheritedProtocols;
   const total = user.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null;
+  const regions = user.access?.regions?.length ? user.access.regions : plan?.allowedRegions || [];
   return {
     id: user.name || user.email || user.id,
     resourceId: user.id,
@@ -1025,7 +1023,8 @@ function adaptUser(user, context) {
     plan: plan?.name || "未绑定",
     expiresAt: isoText(user.expiresAt, "不限").slice(0, 10),
     trafficUsed: `${formatBytes(user.usedTrafficBytes || 0)} / ${formatBytes(total)}`,
-    protocols: protocolListLabel(protocols, "继承权限组"),
+    regions: regions.length ? regions.join(", ") : "全部",
+    protocols: "全部",
     subscription: user.enabled === false ? "禁用" : "启用",
     lastSeen: user.lastProxyUseAt ? isoText(user.lastProxyUseAt) : "未使用",
     configVersion: `v${context.summary?.version || 1}`,
@@ -1127,6 +1126,7 @@ function adaptAccessNode(accessNode, context) {
     type: accessNode.type === "relay" ? "Relay" : "Direct",
     protocol: (accessNode.transport || inbound?.transport || "").toUpperCase() || protocolLabel(accessNode.protocol),
     displayHost: accessNode.host || "-",
+    region: proxyNode?.region || "-",
     port: String(accessNode.port || "-"),
     proxyNode: proxyNode?.name || accessNode.proxyNodeId || "-",
     transitRelay: relay?.name || accessNode.transitRelayId || "-",
@@ -1221,7 +1221,8 @@ const resourceFormConfigs = {
       { name: "expiresAt", label: "到期时间", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量上限 GiB", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用用户", type: "checkbox", defaultValue: true },
-      { name: "protocols", label: "协议权限", type: "text", defaultValue: "vless-reality,hysteria2", hint: "逗号分隔，可留空继承权限组" },
+      { name: "regions", label: "可见区域覆盖", type: "text", defaultValue: "", hint: "逗号分隔，留空继承权限组；例如 HK,JP" },
+      { name: "nodeGroups", label: "可见节点组覆盖", type: "text", defaultValue: "", hint: "逗号分隔，留空继承权限组" },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -1230,7 +1231,8 @@ const resourceFormConfigs = {
       expiresAt: item.raw?.expiresAt || "",
       trafficLimitGiB: item.raw?.trafficLimitBytes ? trimNumber(item.raw.trafficLimitBytes / gib) : "",
       enabled: item.raw?.enabled !== false,
-      protocols: joinList(item.raw?.access?.protocols || []),
+      regions: joinList(item.raw?.access?.regions || []),
+      nodeGroups: joinList(item.raw?.access?.nodeGroups || []),
     }),
     toApiInput: (values) => ({
       name: values.name,
@@ -1239,7 +1241,7 @@ const resourceFormConfigs = {
       expiresAt: values.expiresAt || null,
       trafficLimitBytes: trafficBytesFromGiB(values.trafficLimitGiB),
       enabled: Boolean(values.enabled),
-      access: { protocols: splitList(values.protocols) },
+      access: { regions: splitList(values.regions), nodeGroups: splitList(values.nodeGroups), protocols: [] },
     }),
   },
   plans: {
@@ -1248,8 +1250,9 @@ const resourceFormConfigs = {
       { name: "name", label: "权限组名称", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量额度 GiB", type: "number", defaultValue: 500 },
       { name: "durationDays", label: "有效期天数", type: "number", defaultValue: 90 },
-      { name: "allowedProtocols", label: "允许协议", type: "text", defaultValue: "vless-reality,hysteria2" },
-      { name: "allowUdp", label: "允许 UDP", type: "checkbox", defaultValue: true },
+      { name: "allowedRegions", label: "允许区域", type: "text", defaultValue: "", hint: "逗号分隔，留空=全部区域；例如 HK,JP" },
+      { name: "allowedNodeGroups", label: "允许节点组", type: "text", defaultValue: "", hint: "逗号分隔，留空=全部节点" },
+      { name: "allowedRelayGroups", label: "允许中转组", type: "text", defaultValue: "", hint: "逗号分隔，留空=全部中转" },
       { name: "speedLimitMbps", label: "限速 Mbps", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用权限组", type: "checkbox", defaultValue: true },
     ],
@@ -1257,8 +1260,9 @@ const resourceFormConfigs = {
       name: item.raw?.name || item.name || "",
       trafficLimitGiB: item.raw?.trafficLimitBytes ? trimNumber(item.raw.trafficLimitBytes / gib) : "",
       durationDays: item.raw?.durationDays || "",
-      allowedProtocols: joinList(item.raw?.allowedProtocols || []),
-      allowUdp: item.raw?.allowUdp !== false,
+      allowedRegions: joinList(item.raw?.allowedRegions || []),
+      allowedNodeGroups: joinList(item.raw?.allowedNodeGroups || []),
+      allowedRelayGroups: joinList(item.raw?.allowedRelayGroups || []),
       speedLimitMbps: item.raw?.speedLimitMbps || "",
       enabled: item.raw?.enabled !== false,
     }),
@@ -1267,8 +1271,9 @@ const resourceFormConfigs = {
       enabled: Boolean(values.enabled),
       trafficLimitBytes: trafficBytesFromGiB(values.trafficLimitGiB),
       durationDays: toNumber(values.durationDays, null),
-      allowedProtocols: splitList(values.allowedProtocols),
-      allowUdp: Boolean(values.allowUdp),
+      allowedRegions: splitList(values.allowedRegions),
+      allowedNodeGroups: splitList(values.allowedNodeGroups),
+      allowedRelayGroups: splitList(values.allowedRelayGroups),
       speedLimitMbps: toNumber(values.speedLimitMbps, null),
     }),
   },

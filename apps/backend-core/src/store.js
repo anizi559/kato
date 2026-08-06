@@ -769,7 +769,7 @@ export class JsonStore {
       durationDays: input.durationDays ?? null,
       allowedNodeGroups: asArray(input.allowedNodeGroups),
       allowedRelayGroups: asArray(input.allowedRelayGroups),
-      allowedProtocols: asArray(input.allowedProtocols),
+      allowedRegions: asArray(input.allowedRegions),
       defaultSubscriptionFormat: input.defaultSubscriptionFormat || "auto",
       nodeSortPolicy: input.nodeSortPolicy || "manual",
       resetPolicy: input.resetPolicy || "none",
@@ -806,7 +806,8 @@ export class JsonStore {
       access: {
         nodeGroups: asArray(input.access?.nodeGroups),
         relayGroups: asArray(input.access?.relayGroups),
-        protocols: asArray(input.access?.protocols)
+        protocols: asArray(input.access?.protocols),
+        regions: asArray(input.access?.regions)
       },
       credentials: {
         vlessUuid: input.credentials?.vlessUuid || createUuid(),
@@ -1152,6 +1153,15 @@ function normalizeState(rawState) {
   for (const user of state.users) {
     if (user.lastUsageResetAt === undefined) {
       user.lastUsageResetAt = null;
+    }
+    if (!user.access) {
+      user.access = { nodeGroups: [], relayGroups: [], protocols: [], regions: [] };
+    }
+    if (!Array.isArray(user.access.regions)) {
+      user.access.regions = [];
+    }
+    if (!Array.isArray(user.access.protocols)) {
+      user.access.protocols = [];
     }
   }
   state.bootstrapTokens = Array.isArray(state.bootstrapTokens) ? state.bootstrapTokens : [];

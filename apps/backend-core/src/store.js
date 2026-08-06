@@ -1477,6 +1477,7 @@ function todayStartIso() {
 
 function summarizeTrafficToday(logs) {
   const startIso = todayStartIso();
+  const localDate = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const todayLogs = logs.filter((entry) => entry.recordedAt >= startIso);
   let uploadBytes = 0;
   let downloadBytes = 0;
@@ -1496,7 +1497,7 @@ function summarizeTrafficToday(logs) {
   }
 
   return {
-    date: startIso.slice(0, 10),
+    date: localDate,
     uploadBytes,
     downloadBytes,
     totalBytes: uploadBytes + downloadBytes,

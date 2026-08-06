@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.7.2"
+APP_VERSION="0.7.3"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -2434,7 +2434,7 @@ load_existing_admin_ui_config() {
   local conf="/etc/nginx/sites-available/kato-panel-frontend.conf"
   local existing_port
   [[ -f "$conf" ]] || return 0
-  backend_url="${backend_url:-$(awk '/proxy_pass /{gsub(";","",$2); print $2; exit}' "$conf")}"
+  backend_url="${backend_url:-$(awk '/location \/api\/ /{found=1} found && /proxy_pass /{gsub(";","",$2); print $2; exit}' "$conf")}"
   frontend_pairing_token="${frontend_pairing_token:-$(awk '/X-Frontend-Token/{gsub(";","",$3); print $3; exit}' "$conf")}"
   panel_admin_path="${panel_admin_path:-$(awk '$1=="location" && $2=="=" && $3!="/health"{print $3; exit}' "$conf")}"
   existing_port="$(awk '/listen / && /default_server/ && $2 !~ /^\[/{gsub(";","",$2); print $2; exit}' "$conf")"

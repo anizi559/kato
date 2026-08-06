@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.9.1"
+APP_VERSION="0.9.2"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -1258,6 +1258,7 @@ WantedBy=multi-user.target"
 
 install_backend_core() {
   log "正在安装面板后端 backend-core"
+  install_tls_dependencies
   validate_tls_options
   if [[ "$tls_mode" == "letsencrypt" ]]; then
     listen_host="127.0.0.1"

@@ -1367,6 +1367,7 @@ const resourceFormConfigs = {
       { name: "certPath", label: "AnyTLS 证书路径", type: "text", defaultValue: "" },
       { name: "keyPath", label: "AnyTLS 私钥路径", type: "text", defaultValue: "" },
       { name: "anytlsInsecure", label: "允许自签/不安全证书", type: "checkbox", defaultValue: false },
+      { name: "anytlsCert", label: "AnyTLS 证书（自动申请）", type: "anytls-cert" },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -2611,6 +2612,9 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
     subscriptionBaseUrl: "",
     subscriptionPathPrefix: "go",
     nodeBackendUrl: "",
+    cloudflareApiToken: "",
+    acmeEmail: "",
+    anytlsCertDomains: "",
     subscriptionTitle: "",
     defaultSubscriptionIntervalSeconds: 3600,
     subscriptionUserinfo: true,
@@ -2628,6 +2632,9 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
         subscriptionBaseUrl: backendSettings.subscriptionBaseUrl || "",
         subscriptionPathPrefix: backendSettings.subscriptionPathPrefix || "go",
         nodeBackendUrl: backendSettings.nodeBackendUrl || "",
+        cloudflareApiToken: backendSettings.cloudflareApiToken || "",
+        acmeEmail: backendSettings.acmeEmail || "",
+        anytlsCertDomains: Array.isArray(backendSettings.anytlsCertDomains) ? backendSettings.anytlsCertDomains.join(", ") : "",
         subscriptionTitle: backendSettings.subscriptionTitle || "",
         defaultSubscriptionIntervalSeconds: Number(backendSettings.defaultSubscriptionIntervalSeconds) || 3600,
         subscriptionUserinfo: backendSettings.subscriptionUserinfo !== false,
@@ -2687,6 +2694,15 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
       }, 800);
     } catch (error) {
       showToast(`修改失败：${error.message}`);
+    }
+  }
+
+  function saveBackendSettingsForm() {
+    if (onSaveBackendSettings) {
+      onSaveBackendSettings({
+        ...subscriptionSettings,
+        anytlsCertDomains: splitList(subscriptionSettings.anytlsCertDomains),
+      });
     }
   }
 
@@ -2792,7 +2808,16 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
             <label><span>订阅标题</span><input placeholder="留空使用系统名称" value={subscriptionSettings.subscriptionTitle} onChange={(event) => updateSubscriptionSetting("subscriptionTitle", event.target.value)} /></label>
             <label><span>更新间隔（秒）</span><input type="number" min="60" value={subscriptionSettings.defaultSubscriptionIntervalSeconds} onChange={(event) => updateSubscriptionSetting("defaultSubscriptionIntervalSeconds", Number(event.target.value))} /></label>
             <label><span>流量信息响应头</span><select value={subscriptionSettings.subscriptionUserinfo ? "enabled" : "disabled"} onChange={(event) => updateSubscriptionSetting("subscriptionUserinfo", event.target.value === "enabled")}><option value="enabled">启用（客户端显示剩余流量/到期）</option><option value="disabled">关闭（更隐蔽）</option></select></label>
-            <button className="button button--primary" type="button" onClick={() => onSaveBackendSettings && onSaveBackendSettings(subscriptionSettings)}><IconCircleCheck size={16} stroke={1.9} />保存订阅设置</button>
+            <button className="button button--primary" type="button" onClick={saveBackendSettingsForm}><IconCircleCheck size={16} stroke={1.9} />保存订阅设置</button>
+          </section>
+
+          <section className="setting-panel">
+            <h2>证书与 Cloudflare</h2>
+            <label><span>Cloudflare API Token</span><input type="password" value={subscriptionSettings.cloudflareApiToken} onChange={(event) => updateSubscriptionSetting("cloudflareApiToken", event.target.value)} /></label>
+            <label><span>ACME 邮箱</span><input placeholder="Let's Encrypt 通知邮箱" value={subscriptionSettings.acmeEmail} onChange={(event) => updateSubscriptionSetting("acmeEmail", event.target.value)} /></label>
+            <label><span>AnyTLS 证书基础域名</span><input placeholder="例如 280427.xyz，多个逗号分隔" value={subscriptionSettings.anytlsCertDomains} onChange={(event) => updateSubscriptionSetting("anytlsCertDomains", event.target.value)} /></label>
+            <p className="drawer-note">AnyTLS 节点申请证书时会随机生成二级域名（如 a1973dd7-a509.基础域名），自动创建 DNS 记录并申请 Let's Encrypt 证书，签发后自动下发到节点。</p>
+            <button className="button button--primary" type="button" onClick={saveBackendSettingsForm}><IconCircleCheck size={16} stroke={1.9} />保存证书设置</button>
           </section>
 
           <section className="setting-panel">
@@ -2810,7 +2835,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
             <label><span>Telegram Chat ID</span><input placeholder="-100123456789" value={subscriptionSettings.telegramChatId} onChange={(event) => updateSubscriptionSetting("telegramChatId", event.target.value)} /></label>
             <label><span>健康探测间隔（秒）</span><input type="number" min="15" value={subscriptionSettings.healthProbeIntervalSeconds} onChange={(event) => updateSubscriptionSetting("healthProbeIntervalSeconds", Number(event.target.value))} /></label>
             <label><span>健康探测超时（毫秒）</span><input type="number" min="500" value={subscriptionSettings.healthProbeTimeoutMs} onChange={(event) => updateSubscriptionSetting("healthProbeTimeoutMs", Number(event.target.value))} /></label>
-            <button className="button button--primary" type="button" onClick={() => onSaveBackendSettings && onSaveBackendSettings(subscriptionSettings)}><IconCircleCheck size={16} stroke={1.9} />保存告警设置</button>
+            <button className="button button--primary" type="button" onClick={saveBackendSettingsForm}><IconCircleCheck size={16} stroke={1.9} />保存告警设置</button>
           </section>
 
           <section className="setting-panel">
@@ -3052,15 +3077,17 @@ function BootstrapTokenDialog({ result, onClose, showToast }) {
   );
 }
 
-function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, onSubmit }) {
+function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, onSubmit, backendSettings, notify }) {
   const formConfig = sectionId ? resourceFormConfigs[sectionId] : null;
   const [values, setValues] = useState({});
+  const [certBaseDomain, setCertBaseDomain] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (open && formConfig) {
       setValues(createInitialFormValues(formConfig, resourceData, item));
+      setCertBaseDomain("");
       setError("");
       setSubmitting(false);
     }
@@ -3142,6 +3169,60 @@ function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, on
                   {resolveFieldOptions(field, resourceData).length === 0 ? (
                     <small className="field-hint">还没有访问节点，请先创建节点入站</small>
                   ) : null}
+                </span>
+              ) : field.type === "anytls-cert" ? (
+                <span className="anytls-cert-box">
+                  {values.protocol !== "anytls" ? (
+                    <small className="field-hint">选择 AnyTLS 协议后可申请证书</small>
+                  ) : (
+                    <>
+                      <label className="cert-row">
+                        <span>基础域名</span>
+                        <select value={certBaseDomain} onChange={(event) => setCertBaseDomain(event.target.value)}>
+                          <option value="">请选择（或手动输入）</option>
+                          {(backendSettings?.anytlsCertDomains || []).map((domain) => (
+                            <option key={domain} value={domain}>{domain}</option>
+                          ))}
+                        </select>
+                        <input placeholder="或手动输入基础域名" value={certBaseDomain} onChange={(event) => setCertBaseDomain(event.target.value)} />
+                      </label>
+                      <button
+                        className="button button--secondary"
+                        type="button"
+                        onClick={async () => {
+                          if (!values.proxyNodeId) {
+                            setError("请先选择代理服务器");
+                            return;
+                          }
+                          const domain = certBaseDomain.trim();
+                          if (!domain) {
+                            setError("请选择或输入证书基础域名");
+                            return;
+                          }
+                          try {
+                            const result = await adminPost("/api/v1/admin/anytls-certs/issue", {
+                              proxyNodeId: values.proxyNodeId,
+                              domain
+                            });
+                            setValues((current) => ({
+                              ...current,
+                              anytlsSni: result.domain,
+                              certPath: result.certPath,
+                              keyPath: result.keyPath,
+                              anytlsInsecure: false
+                            }));
+                            setError("");
+                            notify(`证书已申请：${result.domain}（约 90 天后自动续期）`);
+                          } catch (issueError) {
+                            setError(`证书申请失败：${issueError.message}`);
+                          }
+                        }}
+                      >
+                        生成随机二级域名并申请证书
+                      </button>
+                      {values.anytlsSni ? <small className="field-hint">当前证书域名：{values.anytlsSni}</small> : null}
+                    </>
+                  )}
                 </span>
               ) : field.type === "textarea" ? (
                 <textarea value={values[field.name] ?? ""} onChange={(event) => updateValue(field.name, event.target.value)} />
@@ -3728,6 +3809,8 @@ export function App() {
         resourceData={resourceData}
         onClose={closeEditor}
         onSubmit={handleEditorSubmit}
+        backendSettings={backendSettings}
+        notify={showToast}
       />
       <BootstrapTokenDialog result={bootstrapResult} onClose={() => setBootstrapResult(null)} showToast={showToast} />
       {toast ? (

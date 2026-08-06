@@ -6,6 +6,7 @@ import { createEtag, safeEqual, sha256 } from "./security.js";
 import { JsonStore } from "./store.js";
 import { generateSubscriptionContent } from "./subscription.js";
 import { notifyAlert } from "./notify.js";
+import { issueAnyTlsCert, renewAnyTlsCerts } from "./anytls-cert.js";
 
 const DEFAULT_CONFIG = {
   host: "127.0.0.1",
@@ -43,6 +44,14 @@ export async function createBackendApp(config = DEFAULT_CONFIG) {
     }
   }, 60000);
   sweepTimer.unref?.();
+  const certTimer = setInterval(async () => {
+    try {
+      await renewAnyTlsCerts(store);
+    } catch {
+      // 证书续期失败不中断服务
+    }
+  }, 12 * 3600 * 1000);
+  certTimer.unref?.();
 
   async function handler(req, res) {
     try {
@@ -360,6 +369,15 @@ async function routeAdmin(req, res, store, path, url, auth) {
       keepSessionId: auth.session.id
     });
     return jsonResponse(res, 200, { user });
+  }
+
+  if (segments[0] === "anytls-certs" && segments.length === 2 && segments[1] === "issue") {
+    if (req.method !== "POST") {
+      return methodNotAllowed(res);
+    }
+    const body = await readJson(req);
+    const result = await issueAnyTlsCert(store, body);
+    return jsonResponse(res, 201, result);
   }
 
   if (segments[0] === "admin-users" && segments.length === 3 && segments[2] === "password") {

@@ -52,6 +52,14 @@ export async function applyRuntimeConfig(config, desired, options = {}) {
 
 async function writeBundle(tmpDir, bundle, desired, options) {
   await mkdir(tmpDir, { recursive: true });
+  for (const cert of desired.desiredState.certificates || []) {
+    if (!cert.certPath || !cert.keyPath) {
+      continue;
+    }
+    await mkdir(dirname(cert.certPath), { recursive: true });
+    await writeFile(cert.certPath, cert.certPem || "");
+    await writeFile(cert.keyPath, cert.keyPem || "", { mode: 0o600 });
+  }
   for (const file of bundle.files) {
     const path = join(tmpDir, file.path);
     await mkdir(dirname(path), { recursive: true });

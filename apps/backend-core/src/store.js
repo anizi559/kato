@@ -35,6 +35,9 @@ function emptyState() {
       subscriptionBaseUrl: "",
       subscriptionPathPrefix: "go",
       nodeBackendUrl: "",
+      cloudflareApiToken: "",
+      anytlsCertDomains: [],
+      acmeEmail: "",
       agentOfflineSeconds: 180,
       alertWebhookUrl: "",
       telegramBotToken: "",
@@ -57,7 +60,8 @@ function emptyState() {
     auditLogs: [],
     alerts: [],
     frontendEdges: [],
-    subscriptionEdges: []
+    subscriptionEdges: [],
+    anytlsCerts: []
   };
 }
 
@@ -649,6 +653,9 @@ export class JsonStore {
       "subscriptionBaseUrl",
       "subscriptionPathPrefix",
       "nodeBackendUrl",
+      "cloudflareApiToken",
+      "anytlsCertDomains",
+      "acmeEmail",
       "agentOfflineSeconds",
       "alertWebhookUrl",
       "telegramBotToken",
@@ -686,6 +693,28 @@ export class JsonStore {
     this.recordAudit("user.credentials_rotated", user.id, { name: user.name });
     await this.save();
     return clone(user);
+  }
+
+  async upsertAnyTlsCert({ domain, certPath, keyPath, certPem, keyPem, expiresAt }) {
+    const existing = this.state.anytlsCerts.find((item) => item.domain === domain);
+    const record = {
+      domain,
+      certPath,
+      keyPath,
+      certPem,
+      keyPem,
+      expiresAt,
+      issuedAt: existing?.issuedAt || nowIso(),
+      updatedAt: nowIso()
+    };
+    if (existing) {
+      Object.assign(existing, record);
+    } else {
+      this.state.anytlsCerts.push(record);
+    }
+    this.touchConfig();
+    await this.save();
+    return clone(record);
   }
 
   getResource(collection, id) {
@@ -1282,6 +1311,7 @@ function normalizeState(rawState) {
   state.alerts = Array.isArray(state.alerts) ? state.alerts : [];
   state.frontendEdges = Array.isArray(state.frontendEdges) ? state.frontendEdges : [];
   state.subscriptionEdges = Array.isArray(state.subscriptionEdges) ? state.subscriptionEdges : [];
+  state.anytlsCerts = Array.isArray(state.anytlsCerts) ? state.anytlsCerts : [];
   state.configRevision = state.configRevision || 1;
   state.configUpdatedAt = state.configUpdatedAt || state.createdAt || nowIso();
   state.schemaVersion = 3;

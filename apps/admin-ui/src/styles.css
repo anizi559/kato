@@ -1032,6 +1032,16 @@ a {
   cursor: pointer;
 }
 
+.anytls-cert-box {
+  display: grid;
+  gap: 10px;
+}
+
+.cert-row {
+  display: grid;
+  gap: 6px;
+}
+
 .checkbox-line input {
   width: 16px;
   height: 16px;

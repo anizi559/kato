@@ -13,15 +13,29 @@ export function compileDesiredState(agent, state) {
 }
 
 function buildRoleState(agent, state) {
+  const certificates = state.anytlsCerts.map((cert) => ({
+    domain: cert.domain,
+    certPath: cert.certPath,
+    keyPath: cert.keyPath,
+    certPem: cert.certPem,
+    keyPem: cert.keyPem
+  }));
   if (agent.role === "proxy-node") {
-    return buildProxyNodeState(agent, state);
+    return {
+      ...buildProxyNodeState(agent, state),
+      certificates
+    };
   }
   if (agent.role === "transit-relay") {
-    return buildTransitRelayState(agent, state);
+    return {
+      ...buildTransitRelayState(agent, state),
+      certificates
+    };
   }
   return {
     kind: agent.role,
-    runtime: defaultRuntime()
+    runtime: defaultRuntime(),
+    certificates
   };
 }
 

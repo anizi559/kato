@@ -102,6 +102,38 @@ test("anytls inbound renders sing-box config and passes validation", () => {
   assert.equal(renderSingboxConfig(desired.desiredState.inbounds).outbounds[0].type, "direct");
 });
 
+test("runtime apply writes certificates from desired state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kato-cert-apply-"));
+  const runtimeDir = join(dir, "runtime");
+  const certPath = join(dir, "certs", "anytls.example.com", "fullchain.pem");
+  const keyPath = join(dir, "certs", "anytls.example.com", "privkey.pem");
+  const result = await applyRuntimeConfig(
+    {
+      runtimeDir,
+      backupDir: join(dir, "backups")
+    },
+    {
+      configVersion: 9,
+      desiredState: {
+        kind: "proxy-node",
+        inbounds: [],
+        certificates: [
+          {
+            domain: "anytls.example.com",
+            certPath,
+            keyPath,
+            certPem: "CERT-CONTENT",
+            keyPem: "KEY-CONTENT"
+          }
+        ]
+      }
+    }
+  );
+  assert.ok(result.files.length >= 0);
+  assert.equal(await readFile(certPath, "utf8"), "CERT-CONTENT");
+  assert.equal(await readFile(keyPath, "utf8"), "KEY-CONTENT");
+});
+
 test("runtime apply writes manifest and backs up existing runtime directory", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kato-runtime-"));
   const runtimeDir = join(dir, "runtime");

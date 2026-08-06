@@ -61,7 +61,8 @@ function emptyState() {
     alerts: [],
     frontendEdges: [],
     subscriptionEdges: [],
-    anytlsCerts: []
+    anytlsCerts: [],
+    trafficLogs: []
   };
 }
 
@@ -342,24 +343,37 @@ export class JsonStore {
     let addedBytes = 0;
     const userIds = [];
     for (const report of Array.isArray(reports) ? reports : []) {
-      const user = this.state.users.find((item) => item.id === report?.userId);
-      if (!user) {
-        continue;
-      }
-      const plan = user.planId ? this.state.plans.find((item) => item.id === user.planId) : null;
       const uploadBytes = Math.max(0, Number(report?.uploadBytes) || 0);
       const downloadBytes = Math.max(0, Number(report?.downloadBytes) || 0);
       if (uploadBytes + downloadBytes <= 0) {
         continue;
       }
-      if (shouldResetUsage(user, plan, now)) {
-        user.usedTrafficBytes = 0;
-        user.lastUsageResetAt = now;
+      this.state.trafficLogs.push({
+        id: createId("traffic"),
+        agentId,
+        inboundId: report?.inboundId || null,
+        userId: report?.userId || null,
+        uploadBytes,
+        downloadBytes,
+        recordedAt: reportedAt || now
+      });
+      const user = this.state.users.find((item) => item.id === report?.userId);
+      if (user) {
+        const plan = user.planId ? this.state.plans.find((item) => item.id === user.planId) : null;
+        if (shouldResetUsage(user, plan, now)) {
+          user.usedTrafficBytes = 0;
+          user.lastUsageResetAt = now;
+        }
+        user.usedTrafficBytes = (user.usedTrafficBytes || 0) + uploadBytes + downloadBytes;
+        user.lastProxyUseAt = now;
       }
-      user.usedTrafficBytes = (user.usedTrafficBytes || 0) + uploadBytes + downloadBytes;
-      user.lastProxyUseAt = now;
       addedBytes += uploadBytes + downloadBytes;
-      userIds.push(user.id);
+      if (user) {
+        userIds.push(user.id);
+      }
+    }
+    if (this.state.trafficLogs.length > 100000) {
+      this.state.trafficLogs.splice(0, this.state.trafficLogs.length - 100000);
     }
     agent.lastTrafficReport = {
       reports,
@@ -609,7 +623,8 @@ export class JsonStore {
     return {
       totalBytes,
       userCount: users.length,
-      users
+      users,
+      today: summarizeTrafficToday(this.state.trafficLogs || [])
     };
   }
 
@@ -1315,6 +1330,7 @@ function normalizeState(rawState) {
   state.frontendEdges = Array.isArray(state.frontendEdges) ? state.frontendEdges : [];
   state.subscriptionEdges = Array.isArray(state.subscriptionEdges) ? state.subscriptionEdges : [];
   state.anytlsCerts = Array.isArray(state.anytlsCerts) ? state.anytlsCerts : [];
+  state.trafficLogs = Array.isArray(state.trafficLogs) ? state.trafficLogs : [];
   state.configRevision = state.configRevision || 1;
   state.configUpdatedAt = state.configUpdatedAt || state.createdAt || nowIso();
   state.schemaVersion = 3;
@@ -1451,6 +1467,50 @@ function shouldResetUsage(user, plan, nowIso) {
     return elapsedMs >= 30 * 24 * 3600 * 1000;
   }
   return false;
+}
+
+function todayStartIso() {
+  const shifted = new Date(Date.now() + 8 * 3600 * 1000);
+  const date = shifted.toISOString().slice(0, 10);
+  return new Date(`${date}T00:00:00+08:00`).toISOString();
+}
+
+function summarizeTrafficToday(logs) {
+  const startIso = todayStartIso();
+  const todayLogs = logs.filter((entry) => entry.recordedAt >= startIso);
+  let uploadBytes = 0;
+  let downloadBytes = 0;
+  const activeAgents = new Set();
+  const byInbound = new Map();
+
+  for (const entry of todayLogs) {
+    uploadBytes += entry.uploadBytes || 0;
+    downloadBytes += entry.downloadBytes || 0;
+    activeAgents.add(entry.agentId);
+    if (entry.inboundId) {
+      const row = byInbound.get(entry.inboundId) || { uploadBytes: 0, downloadBytes: 0 };
+      row.uploadBytes += entry.uploadBytes || 0;
+      row.downloadBytes += entry.downloadBytes || 0;
+      byInbound.set(entry.inboundId, row);
+    }
+  }
+
+  return {
+    date: startIso.slice(0, 10),
+    uploadBytes,
+    downloadBytes,
+    totalBytes: uploadBytes + downloadBytes,
+    activeAgents: activeAgents.size,
+    activeInbounds: byInbound.size,
+    byInbound: [...byInbound.entries()]
+      .map(([inboundId, row]) => ({
+        inboundId,
+        uploadBytes: row.uploadBytes,
+        downloadBytes: row.downloadBytes,
+        totalBytes: row.uploadBytes + row.downloadBytes
+      }))
+      .sort((left, right) => right.totalBytes - left.totalBytes)
+  };
 }
 
 function validateAdminPassword(value) {

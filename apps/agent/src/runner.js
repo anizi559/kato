@@ -1,8 +1,9 @@
 import { nowIso, VERSION } from "../../../packages/shared/src/protocol.js";
 import { BackendClient } from "./client.js";
 import { readJsonFile, writeJsonFile } from "./config.js";
-import { applyRuntimeConfig } from "./runtime-apply.js";
+import { applyRuntimeConfig, runtimeFilesMatch } from "./runtime-apply.js";
 import { inspectRuntime, restartManagedRuntime, startManagedRuntime } from "./runtime-process.js";
+import { collectTrafficReport } from "./traffic.js";
 
 export async function runOnce(config) {
   const state = (await readJsonFile(config.statePath, {})) || {};
@@ -18,13 +19,20 @@ export async function runOnce(config) {
 
   const desiredResult = await client.desiredState(state.etag);
   if (desiredResult.notModified) {
-    const processState = await ensureRuntimeStarted(config);
+    const lastKnownGood = await readJsonFile(config.lastKnownGoodPath, null);
+    let processState = await ensureRuntimeStarted(config);
+    let runtime = null;
+    if (lastKnownGood && !(await runtimeFilesMatch(config, lastKnownGood))) {
+      runtime = await applyDesiredState(config, lastKnownGood);
+      processState = runtime.process || processState;
+    }
+    await reportTrafficAndSave(config, state, client);
     return {
-      changed: false,
+      changed: Boolean(runtime),
       mode: "online",
       configVersion: state.configVersion,
       process: processState,
-      message: "desired state not modified"
+      message: runtime ? "runtime config upgraded" : "desired state not modified"
     };
   }
 
@@ -46,6 +54,7 @@ export async function runOnce(config) {
     appliedAt: nextState.lastKnownGoodAt,
     runtime
   });
+  await reportTrafficAndSave(config, { ...state, ...nextState, lastTraffic: null }, client);
 
   return {
     changed: true,
@@ -53,6 +62,24 @@ export async function runOnce(config) {
     configVersion: desired.configVersion,
     message: "desired state applied"
   };
+}
+
+async function reportTrafficAndSave(config, state, client) {
+  const trafficReport = await collectTrafficReport(config, state);
+  if (!trafficReport) {
+    return;
+  }
+  const nextState = { ...state, lastTraffic: trafficReport.counter };
+  await writeJsonFile(config.statePath, nextState);
+  if (trafficReport.reports.length) {
+    await safeCall(
+      () => client.reportTraffic({
+        reports: trafficReport.reports,
+        reportedAt: new Date().toISOString()
+      }),
+      "traffic report"
+    );
+  }
 }
 
 export async function runOffline(config, error) {

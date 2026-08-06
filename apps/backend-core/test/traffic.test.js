@@ -135,8 +135,53 @@ test("traffic report requires agent auth and ignores unknown users", async () =>
       }
     });
     assert.equal(result.status, 200);
-    assert.equal(result.body.addedBytes, 30);
+    assert.equal(result.body.addedBytes, 230);
     assert.deepEqual(result.body.userIds, [user.id]);
+
+    const summary = await adminGet(app, "traffic-summary");
+    assert.equal(summary.today.totalBytes, 230);
+    assert.equal(summary.today.uploadBytes, 110);
+    assert.equal(summary.today.downloadBytes, 120);
+  } finally {
+    await app.close();
+  }
+});
+
+test("node-level traffic reports accumulate today by inbound", async () => {
+  const app = await startTestServer();
+  try {
+    const node = await adminPost(app, "proxy-nodes", {
+      name: "hk-node",
+      publicIp: "203.0.113.1"
+    });
+    const inbound = await adminPost(app, "node-inbounds", {
+      name: "香港",
+      proxyNodeId: node.id,
+      protocol: "anytls",
+      port: 2053
+    });
+    const agent = await registerResourceAgent(app, "proxy-node", node.id, "node-hk");
+
+    const result = await requestJson(app, `/api/v1/agents/${agent.agentId}/reports/traffic`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${agent.agentSecret}`
+      },
+      body: {
+        reports: [
+          { kind: "node", inboundId: inbound.id, uploadBytes: 150, downloadBytes: 850 }
+        ]
+      }
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.addedBytes, 1000);
+
+    const summary = await adminGet(app, "traffic-summary");
+    assert.equal(summary.today.totalBytes, 1000);
+    assert.equal(summary.today.activeInbounds, 1);
+    assert.equal(summary.today.byInbound.length, 1);
+    assert.equal(summary.today.byInbound[0].inboundId, inbound.id);
+    assert.equal(summary.today.byInbound[0].totalBytes, 1000);
   } finally {
     await app.close();
   }

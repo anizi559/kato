@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { nowIso } from "../../../packages/shared/src/protocol.js";
@@ -48,6 +48,26 @@ export async function applyRuntimeConfig(config, desired, options = {}) {
     files: bundle.files.map((file) => file.path),
     warnings: bundle.warnings
   };
+}
+
+export async function runtimeFilesMatch(config, desired) {
+  const bundle = renderRuntimeBundle(desired, config.runtime || {});
+  const runtimeDir = config.runtimeDir || "data/runtime";
+  for (const file of bundle.files) {
+    const path = join(runtimeDir, file.path);
+    let current = null;
+    try {
+      current = await readFile(path, "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    if (current !== file.content) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function writeBundle(tmpDir, bundle, desired, options) {

@@ -59,6 +59,15 @@ export class BackendClient {
     return parseJsonResponse(response);
   }
 
+  async reportTraffic({ reports, reportedAt }) {
+    const response = await fetch(`${this.backendUrl}/api/v1/agents/${this.agentId}/reports/traffic`, {
+      method: "POST",
+      headers: this.authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ reports, reportedAt })
+    });
+    return parseJsonResponse(response);
+  }
+
   authHeaders(extra = {}) {
     return {
       authorization: `Bearer ${this.agentSecret}`,

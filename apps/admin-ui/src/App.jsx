@@ -211,14 +211,17 @@ const columns = {
     { key: "assignee", label: "处理人", width: "72px" },
   ],
   traffic: [
-    { key: "name", label: "统计项", primary: true, width: "154px", subKey: "summary" },
-    { key: "dimension", label: "维度", width: "98px" },
-    { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
-    { key: "inbound", label: "入站", width: "100px" },
-    { key: "upload", label: "上传", width: "74px" },
-    { key: "download", label: "下载", width: "82px" },
-    { key: "peak", label: "峰值", width: "82px" },
-    { key: "updatedAt", label: "更新", width: "150px" },
+    { key: "name", label: "用户", primary: true, width: "180px", subKey: "summary" },
+    { key: "download", label: "已用流量", width: "110px" },
+    { key: "quota", label: "额度", width: "110px" },
+    { key: "updatedAt", label: "最近使用", width: "150px" },
+  ],
+  trafficNodes: [
+    { key: "name", label: "节点", primary: true, width: "220px", subKey: "summary" },
+    { key: "upload", label: "上传", width: "110px" },
+    { key: "download", label: "下载", width: "110px" },
+    { key: "total", label: "今日总量", width: "120px" },
+    { key: "updatedAt", label: "统计日期", width: "120px" },
   ],
   domains: [
     { key: "name", label: "域名", primary: true, width: "200px", subKey: "summary" },
@@ -565,26 +568,38 @@ const resourceConfigs = {
     preview: (row) => `alert: ${row.id}\nseverity: ${row.severity}\nresource: ${row.resourceType}/${row.resourceName}\nstatus: ${row.status}\nsummary: ${row.summary}`,
   },
   traffic: {
-    title: "流量统计",
-    subtitle: "按用户、代理节点、中转服务器和协议维度查看流量与峰值",
+    title: "用户累计用量",
+    subtitle: "按用户查看累计已用流量与额度",
     data: trafficStats,
     columns: columns.traffic,
-    tableLabel: "流量统计列表",
-    primaryAction: "导出报表",
-    secondaryAction: "刷新统计",
-    searchPlaceholder: "搜索统计维度、节点或入站...",
-    searchKeys: ["id", "name", "dimension", "inbound"],
-    segments: [{ label: "全部", value: "All" }, { label: "用户", value: "User" }, { label: "代理节点", value: "Proxy Node" }, { label: "中转服务器", value: "Transit Relay" }],
-    segmentKey: "dimension",
+    tableLabel: "用户累计用量列表",
+    searchPlaceholder: "搜索用户名或状态...",
+    searchKeys: ["id", "name"],
+    segments: [{ label: "全部", value: "All" }],
     filters: [
       { key: "status", label: "状态", options: ["全部", "正常"] },
-      { key: "inbound", label: "入站", options: ["全部", "全部流量", "AnyTLS"] },
-      { key: "peak", label: "峰值", options: ["全部", "213 Mbps", "118 Mbps", "94 Mbps"] },
     ],
-    detailRows: [["维度", "dimension"], ["入站", "inbound"], ["上传", "upload"], ["下载", "download"], ["峰值", "peak"], ["更新时间", "updatedAt"]],
+    detailRows: [["已用流量", "download"], ["额度", "quota"], ["最近使用", "updatedAt"]],
     relationRows: [["状态", "status"], ["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
-    metricRows: [["统计 ID", "id"], ["摘要", "summary"]],
-    preview: (row) => `traffic_stat: ${row.id}\ndimension: ${row.dimension}\nupload: ${row.upload}\ndownload: ${row.download}\npeak: ${row.peak}\nupdated_at: ${row.updatedAt}`,
+    metricRows: [["用户 ID", "id"], ["摘要", "summary"]],
+    preview: (row) => `user_traffic: ${row.id}\nused: ${row.download}\nquota: ${row.quota}\nupdated_at: ${row.updatedAt}`,
+  },
+  "traffic-nodes": {
+    title: "今日节点流量",
+    subtitle: "按代理节点入站汇总今日上传、下载与总量（每 1 分钟采集）",
+    data: [],
+    columns: columns.trafficNodes,
+    tableLabel: "今日节点流量列表",
+    searchPlaceholder: "搜索节点名称或状态...",
+    searchKeys: ["id", "name"],
+    segments: [{ label: "全部", value: "All" }],
+    filters: [
+      { key: "status", label: "状态", options: ["全部", "正常"] },
+    ],
+    detailRows: [["上传", "upload"], ["下载", "download"], ["今日总量", "total"], ["统计日期", "updatedAt"]],
+    relationRows: [["状态", "status"]],
+    metricRows: [["节点 ID", "id"], ["摘要", "summary"]],
+    preview: (row) => `node_traffic: ${row.id}\nupload: ${row.upload}\ndownload: ${row.download}\ntotal: ${row.total}\ndate: ${row.updatedAt}`,
   },
   domains: {
     title: "域名证书",
@@ -688,13 +703,14 @@ function buildSummaryCards(resourceData = {}) {
   const agents = resourceData.agents || [];
   const offlineAgents = agents.filter((agent) => ["离线", "故障", "失败"].includes(agent.status)).length;
   const pendingAccessNodes = (resourceData["access-nodes"] || []).filter((node) => node.status === "待发布").length;
+  const today = resourceData.trafficToday || null;
   return [
     { label: "用户", value: String((resourceData.users || []).length), meta: "当前数据库用户", tone: "success", section: "users" },
     { label: "中转入口", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待应用`, tone: pendingAccessNodes ? "warning" : "success", section: "access-nodes" },
     { label: "代理服务器", value: String((resourceData["proxy-nodes"] || []).length), meta: "由服务器管理接管", tone: "success", section: "servers" },
     { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "管理转发链路", tone: "success", section: "servers" },
     { label: "服务器代理", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success", section: "servers" },
-    { label: "今日流量", value: "0 GB", meta: "统计模块待接入", tone: "warning", section: "monitor" },
+    { label: "今日流量", value: today ? formatBytes(today.totalBytes) : "0 B", meta: today ? `上传 ${formatBytes(today.uploadBytes)} · 下载 ${formatBytes(today.downloadBytes)}` : "等待节点上报", tone: today?.totalBytes ? "success" : "warning", section: "monitor" },
   ];
 }
 
@@ -1002,6 +1018,8 @@ function adaptBackendResources({ collections, agents: rawAgents, summary, alerts
     alerts: alerts.map((alert) => adaptAlert(alert)),
     "audit-logs": auditLogs.map((entry) => adaptAuditLog(entry)),
     traffic: (trafficSummary?.users || []).map((user) => adaptTrafficRow(user)),
+    trafficToday: trafficSummary?.today || null,
+    trafficNodes: (trafficSummary?.today?.byInbound || []).map((row) => adaptTrafficNode(row, context, trafficSummary.today.date)),
     config: adaptConfigReleases(summary, agentsRaw),
   };
 }
@@ -1087,11 +1105,26 @@ function adaptTrafficRow(user) {
     raw: user,
     name: user.name,
     dimension: "用户",
-    inbound: "-",
-    upload: "-",
     download: formatBytes(user.usedTrafficBytes || 0),
     quota: user.trafficLimitBytes ? formatBytes(user.trafficLimitBytes) : "不限",
     updatedAt: isoText(user.lastProxyUseAt, "未使用"),
+    status: "正常",
+  };
+}
+
+function adaptTrafficNode(row, context, date) {
+  const inbound = context.inboundById.get(row.inboundId);
+  return {
+    id: inbound?.name || row.inboundId,
+    resourceId: row.inboundId,
+    raw: row,
+    name: inbound?.name || row.inboundId,
+    summary: inbound ? "代理节点入站" : "未知入站",
+    group: "今日节点流量",
+    upload: formatBytes(row.uploadBytes),
+    download: formatBytes(row.downloadBytes),
+    total: formatBytes(row.totalBytes),
+    updatedAt: isoText(`${date}T00:00:00+08:00`),
     status: "正常",
   };
 }
@@ -2586,18 +2619,106 @@ function ServerManagementPage(props) {
 }
 
 function MonitorLogPage(props) {
+  const [activeTab, setActiveTab] = useState("alerts");
+  const { resourceData, ...routeProps } = props;
+  const tabs = [
+    { id: "alerts", label: "告警事件", icon: IconBellRinging },
+    { id: "traffic", label: "流量统计", icon: IconSelector },
+    { id: "audit", label: "审计日志", icon: IconFileCode },
+  ];
+
   return (
-    <ResourceWorkspacePage
-      {...props}
-      title="监控日志"
-      subtitle="集中查看告警、流量统计和审计日志，后续可接入通知与报表"
-      initialTab="alerts"
-      tabs={[
-        { id: "alerts", label: "告警事件", icon: IconBellRinging, sectionId: "alerts" },
-        { id: "traffic", label: "流量统计", icon: IconSelector, sectionId: "traffic" },
-        { id: "audit", label: "审计日志", icon: IconFileCode, sectionId: "audit-logs" },
-      ]}
-    />
+    <div className="workspace-shell">
+      <section className="main-pane main-pane--wide">
+        <div className="page-header page-header--compact">
+          <div>
+            <h1>监控日志</h1>
+            <p>集中查看告警、今日流量和审计日志</p>
+          </div>
+        </div>
+        <WorkspaceTabs items={tabs} activeId={activeTab} onChange={setActiveTab} />
+      </section>
+      {activeTab === "traffic" ? (
+        <TrafficPage {...props} />
+      ) : (
+        <ResourceRoute
+          key={activeTab}
+          sectionId={activeTab === "alerts" ? "alerts" : "audit-logs"}
+          config={resourceConfigs[activeTab === "alerts" ? "alerts" : "audit-logs"]}
+          rows={resourceData[activeTab === "alerts" ? "alerts" : "audit-logs"]}
+          headerLevel="h2"
+          {...routeProps}
+        />
+      )}
+    </div>
+  );
+}
+
+function TrafficPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
+  const today = resourceData.trafficToday;
+  const cards = [
+    { label: "今日总流量", value: today ? formatBytes(today.totalBytes) : "0 B", tone: today?.totalBytes ? "success" : "warning" },
+    { label: "上传", value: today ? formatBytes(today.uploadBytes) : "0 B", tone: "success" },
+    { label: "下载", value: today ? formatBytes(today.downloadBytes) : "0 B", tone: "success" },
+    { label: "活跃节点", value: String(today?.activeInbounds || 0), tone: today?.activeInbounds ? "success" : "warning" },
+  ];
+  const routeProps = {
+    resourceData,
+    showToast,
+    setDrawerOpen,
+    onCreate,
+    onEdit,
+    onDelete,
+    onToggle,
+    onReload,
+    onGenerateBootstrap,
+    onResetSubscription,
+    backendSettings,
+  };
+
+  return (
+    <div className="transit-stack">
+      <section className="traffic-summary">
+        {cards.map((card) => (
+          <div className="traffic-card" key={card.label}>
+            <span><StatusDot tone={card.tone} />{card.label}</span>
+            <strong>{card.value}</strong>
+          </div>
+        ))}
+      </section>
+      <section className="transit-panel">
+        <div className="transit-panel__header">
+          <div>
+            <h2>今日节点流量</h2>
+            <p>按代理节点入站汇总今日上传、下载与总量（每 1 分钟采集）</p>
+          </div>
+        </div>
+        <ResourceRoute
+          key="traffic-nodes"
+          sectionId="traffic-nodes"
+          config={resourceConfigs["traffic-nodes"]}
+          rows={resourceData.trafficNodes || []}
+          {...routeProps}
+          embedded
+        />
+      </section>
+      <section className="transit-panel">
+        <div className="transit-panel__header">
+          <div>
+            <h2>用户累计用量</h2>
+            <p>按用户累计已用流量与额度</p>
+          </div>
+        </div>
+        <ResourceRoute
+          key="traffic"
+          sectionId="traffic"
+          config={resourceConfigs.traffic}
+          rows={resourceData.traffic || []}
+          {...routeProps}
+          embedded
+        />
+      </section>
+    </div>
   );
 }
 

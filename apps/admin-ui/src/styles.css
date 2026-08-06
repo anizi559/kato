@@ -1484,6 +1484,36 @@ a {
   padding: 0 18px 28px;
 }
 
+.traffic-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.traffic-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.traffic-card span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.traffic-card strong {
+  font-size: 22px;
+  font-weight: 720;
+  color: #111827;
+}
+
 .transit-panel {
   display: grid;
   gap: 12px;

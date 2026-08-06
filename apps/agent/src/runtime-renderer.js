@@ -81,7 +81,13 @@ export function renderSingboxConfig(inbounds) {
         type: "direct",
         tag: "direct"
       }
-    ]
+    ],
+    experimental: {
+      clash_api: {
+        external_controller: "127.0.0.1:19090",
+        secret: "kato-local-stats"
+      }
+    }
   };
 }
 

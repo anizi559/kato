@@ -225,14 +225,22 @@ a {
   padding: 0 4px 0 14px;
 }
 
+.topbar__mode {
+  cursor: default;
+  pointer-events: none;
+}
+
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 350px;
+  grid-template-columns: minmax(0, 1fr);
   min-height: calc(100vh - 61px);
 }
 
 .main-pane {
   min-width: 0;
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto;
   padding: 24px 18px 28px;
 }
 
@@ -742,6 +750,14 @@ a {
   font-weight: 520;
 }
 
+.inspector label {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 620;
+}
+
 .meta-list,
 .link-list {
   display: grid;
@@ -849,6 +865,10 @@ a {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+
+.quick-actions--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .quick-actions .button {
@@ -994,6 +1014,7 @@ a {
   border-radius: 5px;
   background: #ffffff;
   color: #1f2b3d;
+  font-size: 13px;
 }
 
 .drawer-form input,

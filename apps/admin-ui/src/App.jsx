@@ -1,12 +1,7 @@
 import {
   IconActivityHeartbeat,
-  IconAdjustmentsHorizontal,
   IconBellRinging,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
-  IconChevronsLeft,
-  IconChevronsRight,
   IconCircleCheck,
   IconCloudComputing,
   IconCopy,
@@ -15,9 +10,7 @@ import {
   IconFileCode,
   IconGitBranch,
   IconHome2,
-  IconLayoutSidebarLeftCollapse,
   IconLock,
-  IconMenu2,
   IconNetwork,
   IconPlus,
   IconRefresh,
@@ -426,7 +419,7 @@ const resourceConfigs = {
     columns: columns.edges,
     tableLabel: "前端服务器列表",
     primaryAction: "注册前端服务器",
-    secondaryAction: "签发证书",
+    secondaryAction: "生成安装 Token",
     searchPlaceholder: "搜索入口、域名或伪装类型...",
     searchKeys: ["id", "name", "host", "camouflage"],
     segments: [{ label: "All", value: "All" }, { label: "在线", value: "在线" }, { label: "待发布", value: "待发布" }],
@@ -448,7 +441,7 @@ const resourceConfigs = {
     columns: columns.subscriptionEdges,
     tableLabel: "订阅服务器列表",
     primaryAction: "注册订阅服务器",
-    secondaryAction: "刷新缓存",
+    secondaryAction: "生成安装 Token",
     searchPlaceholder: "搜索订阅服务器、域名或区域...",
     searchKeys: ["id", "name", "host", "region"],
     segments: [{ label: "All", value: "All" }, { label: "在线", value: "在线" }, { label: "降级", value: "降级" }],
@@ -698,12 +691,12 @@ function buildSummaryCards(resourceData = {}) {
   const offlineAgents = agents.filter((agent) => ["离线", "故障", "失败"].includes(agent.status)).length;
   const pendingAccessNodes = (resourceData["access-nodes"] || []).filter((node) => node.status === "待发布").length;
   return [
-    { label: "用户", value: String((resourceData.users || []).length), meta: "当前数据库用户", tone: "success" },
-    { label: "中转入口", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待应用`, tone: pendingAccessNodes ? "warning" : "success" },
-    { label: "代理服务器", value: String((resourceData["proxy-nodes"] || []).length), meta: "由服务器管理接管", tone: "success" },
-    { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "管理转发链路", tone: "success" },
-    { label: "服务器 Agent", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success" },
-    { label: "今日流量", value: "0 GB", meta: "统计模块待接入", tone: "warning" },
+    { label: "用户", value: String((resourceData.users || []).length), meta: "当前数据库用户", tone: "success", section: "users" },
+    { label: "中转入口", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待应用`, tone: pendingAccessNodes ? "warning" : "success", section: "access-nodes" },
+    { label: "代理服务器", value: String((resourceData["proxy-nodes"] || []).length), meta: "由服务器管理接管", tone: "success", section: "servers" },
+    { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "管理转发链路", tone: "success", section: "servers" },
+    { label: "服务器 Agent", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success", section: "servers" },
+    { label: "今日流量", value: "0 GB", meta: "统计模块待接入", tone: "warning", section: "monitor" },
   ];
 }
 
@@ -1866,11 +1859,6 @@ function LinkText({ children }) {
 function Sidebar({ activeSection, onSelect }) {
   return (
     <aside className="sidebar">
-      <div className="sidebar__top">
-        <IconButton label="菜单">
-          <IconMenu2 size={22} stroke={1.8} />
-        </IconButton>
-      </div>
       <nav className="sidebar__nav" aria-label="主导航">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -1888,10 +1876,6 @@ function Sidebar({ activeSection, onSelect }) {
           );
         })}
       </nav>
-      <button className="sidebar__collapse" type="button">
-        <IconLayoutSidebarLeftCollapse size={20} stroke={1.75} />
-        <span>收起</span>
-      </button>
     </aside>
   );
 }
@@ -1933,7 +1917,7 @@ function TopBar({ onRefresh, apiStatus, adminUser, onLogout }) {
         <span className="topbar__item"><StatusDot tone="success" />监控正常</span>
       </div>
       <div className="topbar__actions">
-        <button className="button button--secondary" type="button">{apiStatus?.mode === "demo" ? "演示预览" : "生产模式"}</button>
+        <span className="button button--secondary topbar__mode">{apiStatus?.mode === "demo" ? "演示模式" : "生产模式"}</span>
         <button className="button button--primary" type="button" onClick={onRefresh}><IconRefresh size={16} stroke={1.9} />刷新数据</button>
         <button className="admin-menu" type="button" onClick={onLogout}>
           <IconUser size={18} stroke={1.8} />
@@ -1973,9 +1957,6 @@ function ResourceToolbar({ query, setQuery, searchPlaceholder, segments, segment
           <IconChevronDown size={15} stroke={1.9} />
         </label>
       ))}
-      <IconButton label={advancedLabel} variant="outline">
-        <IconAdjustmentsHorizontal size={19} stroke={1.8} />
-      </IconButton>
     </section>
   );
 }
@@ -1999,7 +1980,7 @@ function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onS
         </colgroup>
         <thead>
           <tr>
-            <th className="checkbox-cell"><input type="checkbox" aria-label="选择全部" /></th>
+            <th className="checkbox-cell"><input type="checkbox" aria-label="选择全部" disabled /></th>
             {tableColumns.map((column) => (
               <th className={column.align === "center" ? "center-cell" : ""} key={column.key}>
                 {column.primary ? <span className="sortable">{column.label} <IconSelector size={13} stroke={1.8} /></span> : column.label}
@@ -2023,7 +2004,7 @@ function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onS
                   {tableColumns.map((column) => (
                     <td className={column.align === "center" ? "center-cell" : ""} data-label={column.label} key={column.key}>
                       {column.primary ? (
-                        <button className="name-button" type="button" title={row[column.subKey] ? `${row[column.key]}\n${row[column.subKey]}` : String(row[column.key] ?? "")}>
+                        <button className="name-button" type="button" title={row[column.subKey] ? `${row[column.key]}\n${row[column.subKey]}` : String(row[column.key] ?? "")} onClick={() => onSelect(row.id)}>
                           <span>{row[column.key]}</span>
                           <small>{row[column.subKey]}</small>
                         </button>
@@ -2080,7 +2061,7 @@ function KeyValueSection({ title, rows, compact = false }) {
   );
 }
 
-function GenericInspector({ item, config, onClose, onEdit, onDelete, canWrite, onResetSubscription, backendSettings }) {
+function GenericInspector({ item, config, onClose, onEdit, onDelete, onToggleEnabled, canWrite, onResetSubscription, backendSettings }) {
   if (!item) return null;
 
   const detailRows = (config.detailRows || []).map(([label, value]) => ({ label, value: getValue(item, value) }));
@@ -2111,7 +2092,7 @@ function GenericInspector({ item, config, onClose, onEdit, onDelete, canWrite, o
             <span>订阅 Token</span>
             <pre className="token-box"><button aria-label="复制订阅 Token" type="button" onClick={() => copyToClipboard(subscriptionToken, "订阅 Token")}><IconCopy size={16} stroke={1.9} /></button>{subscriptionToken || "-"}</pre>
           </label>
-          <div className="quick-actions">
+          <div className="quick-actions quick-actions--single">
             <button className="button button--secondary" type="button" disabled={!canWrite} onClick={() => onResetSubscription && onResetSubscription(item)}><IconRefresh size={16} stroke={1.9} />重置订阅 Token</button>
           </div>
         </div>
@@ -2131,20 +2112,27 @@ function GenericInspector({ item, config, onClose, onEdit, onDelete, canWrite, o
       </div>
 
       <KeyValueSection compact title="运行摘要" rows={metricRows} />
-      <QuickActions canWrite={canWrite} onEdit={onEdit} onDelete={onDelete} />
+      <QuickActions
+        canWrite={canWrite}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onCopy={() => copyToClipboard(item.name || item.id, "名称")}
+        onToggleEnabled={onToggleEnabled}
+        disabled={item.raw?.enabled === false}
+      />
       <ConfigPreview title="配置预览" note="节选" content={config.preview ? config.preview(item) : JSON.stringify(item, null, 2)} />
     </InspectorShell>
   );
 }
 
-function QuickActions({ canWrite, onEdit, onDelete }) {
+function QuickActions({ canWrite, onEdit, onDelete, onCopy, onToggleEnabled, disabled = false }) {
   return (
     <div className="inspector__section">
       <h3>快捷操作</h3>
       <div className="quick-actions">
         <button className="button button--secondary" type="button" disabled={!canWrite} onClick={onEdit}><IconShieldLock size={16} stroke={1.9} />编辑</button>
-        <button className="button button--secondary" type="button"><IconCopy size={16} stroke={1.9} />复制</button>
-        <button className="button button--secondary" type="button"><IconLock size={16} stroke={1.9} />禁用</button>
+        <button className="button button--secondary" type="button" onClick={onCopy}><IconCopy size={16} stroke={1.9} />复制</button>
+        <button className="button button--secondary" type="button" disabled={!canWrite || !onToggleEnabled} onClick={onToggleEnabled}><IconLock size={16} stroke={1.9} />{disabled ? "启用" : "禁用"}</button>
         <button className="button button--danger" type="button" disabled={!canWrite} onClick={onDelete}><IconTrash size={16} stroke={1.9} />删除</button>
       </div>
     </div>
@@ -2155,7 +2143,7 @@ function ConfigPreview({ title, note, content }) {
   return (
     <div className="inspector__section inspector__section--last">
       <h3>{title} <span>{note}</span></h3>
-      <pre className="code-preview"><button aria-label="复制配置" type="button"><IconCopy size={16} stroke={1.9} /></button>{content}</pre>
+      <pre className="code-preview"><button aria-label="复制配置" type="button" onClick={() => copyToClipboard(content, "配置")}><IconCopy size={16} stroke={1.9} /></button>{content}</pre>
     </div>
   );
 }
@@ -2164,23 +2152,11 @@ function Pagination({ total }) {
   return (
     <footer className="pagination">
       <span>共 {total} 条</span>
-      <select aria-label="每页条数" defaultValue="10">
-        <option>10 条/页</option>
-        <option>20 条/页</option>
-      </select>
-      <div className="pagination__controls">
-        <IconButton label="首页" variant="outline"><IconChevronsLeft size={16} stroke={1.8} /></IconButton>
-        <IconButton label="上一页" variant="outline"><IconChevronLeft size={16} stroke={1.8} /></IconButton>
-        <button className="page-button page-button--active" type="button">1</button>
-        <IconButton label="下一页" variant="outline"><IconChevronRight size={16} stroke={1.8} /></IconButton>
-        <IconButton label="末页" variant="outline"><IconChevronsRight size={16} stroke={1.8} /></IconButton>
-      </div>
-      <label className="page-jump">前往 <input defaultValue="1" /> 页</label>
     </footer>
   );
 }
 
-function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, headerLevel = "h1", inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onResetSubscription, backendSettings }) {
+function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, headerLevel = "h1", primaryDisabled = false, secondaryDisabled = false, inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onToggleSelected, onResetSubscription, backendSettings }) {
   const PrimaryIcon = config.primaryIcon || IconPlus;
   const SecondaryIcon = config.secondaryIcon || IconPlus;
   const hasRows = rows.length > 0;
@@ -2197,11 +2173,11 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
               <p>{config.subtitle}</p>
             </div>
             <div className="page-header__actions">
-              <button className="button button--secondary button--blue" type="button" onClick={onSecondary}>
+              <button className="button button--secondary button--blue" type="button" disabled={secondaryDisabled} title={secondaryDisabled ? "功能开发中" : undefined} onClick={onSecondary}>
                 <SecondaryIcon size={17} stroke={1.9} />
                 {config.secondaryAction}
               </button>
-              <button className="button button--primary" type="button" onClick={onPrimary}>
+              <button className="button button--primary" type="button" disabled={primaryDisabled} title={primaryDisabled ? "功能开发中" : undefined} onClick={onPrimary}>
                 <PrimaryIcon size={17} stroke={1.9} />
                 {config.primaryAction}
               </button>
@@ -2247,6 +2223,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
             canWrite={canWrite}
             onEdit={() => onEditSelected(selectedItem)}
             onDelete={() => onDeleteSelected(selectedItem)}
+            onToggleEnabled={() => onToggleSelected && onToggleSelected(selectedItem)}
             onClose={onCloseInspector}
             onResetSubscription={onResetSubscription}
             backendSettings={backendSettings}
@@ -2257,7 +2234,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
   );
 }
 
-function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false, headerLevel = "h1" }) {
+function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false, headerLevel = "h1" }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("All");
   const [filterValues, setFilterValues] = useState(() => {
@@ -2266,6 +2243,8 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
   const rows = dataRows || [];
   const runtimeConfig = useMemo(() => resolveRuntimeResourceConfig(config, rows), [config, rows]);
   const canWrite = writableSections.has(sectionId);
+  const primaryDisabled = !(config.primaryKind === "relay" || canWrite);
+  const secondaryDisabled = !((sectionId === "access-nodes" && canWrite) || bootstrapRoleBySection[sectionId]);
   const [selectedId, setSelectedId] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
 
@@ -2316,6 +2295,8 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
       canWrite={canWrite}
       embedded={embedded}
       headerLevel={headerLevel}
+      primaryDisabled={primaryDisabled}
+      secondaryDisabled={secondaryDisabled}
       inspectorOpen={inspectorOpen}
       onSelect={setSelectedId}
       onOpenInspector={() => setInspectorOpen(true)}
@@ -2345,6 +2326,7 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
       onCloseInspector={() => setInspectorOpen(false)}
       onEditSelected={(item) => item && onEdit(sectionId, item)}
       onDeleteSelected={(item) => item && onDelete(sectionId, item)}
+      onToggleSelected={(item) => item && onToggle && onToggle(sectionId, item)}
       onResetSubscription={onResetSubscription}
       backendSettings={backendSettings}
     />
@@ -2372,7 +2354,7 @@ function WorkspaceTabs({ items, activeId, onChange }) {
   );
 }
 
-function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
+function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
   const [activeTab, setActiveTab] = useState(initialTab || tabs[0]?.id);
   const tab = tabs.find((item) => item.id === activeTab) || tabs[0];
   const sectionId = tab?.sectionId;
@@ -2402,6 +2384,7 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
         onCreate={onCreate}
         onEdit={onEdit}
         onDelete={onDelete}
+        onToggle={onToggle}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
         onResetSubscription={onResetSubscription}
@@ -2449,7 +2432,7 @@ function AccessWorkspacePage(props) {
   );
 }
 
-function TransitPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
+function TransitPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
   const routeProps = {
     resourceData,
     showToast,
@@ -2457,6 +2440,7 @@ function TransitPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit,
     onCreate,
     onEdit,
     onDelete,
+    onToggle,
     onReload,
     onGenerateBootstrap,
     onResetSubscription,
@@ -2583,7 +2567,7 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
 
         <div className="metric-grid">
           {summaryCards.map((card) => (
-            <button className="metric-card" key={card.label} type="button">
+            <button className="metric-card" key={card.label} type="button" onClick={() => card.section && setActiveSection(card.section)}>
               <span><StatusDot tone={card.tone} />{card.label}</span>
               <strong>{card.value}</strong>
               <small>{card.meta}</small>
@@ -2816,10 +2800,6 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
           <div>
             <h1>系统设置</h1>
             <p>管理 Backend Core、管理员安全、订阅兼容、证书、备份和升级策略</p>
-          </div>
-          <div className="page-header__actions">
-            <button className="button button--secondary button--blue" type="button" onClick={() => showToast("设置变更已重置")}><IconRefresh size={17} stroke={1.9} />重置</button>
-            <button className="button button--primary" type="button" onClick={() => showToast("系统设置已保存，等待发布")}><IconCircleCheck size={17} stroke={1.9} />保存设置</button>
           </div>
         </div>
 
@@ -3464,7 +3444,7 @@ function LoginPage({ apiStatus, onLogin }) {
   );
 }
 
-function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, onSaveBackendSettings }) {
+function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen, resourceData, apiStatus, onSaveApiSettings, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, onSaveBackendSettings }) {
   if (activeSection === "overview") {
     return <OverviewPage showToast={showToast} setActiveSection={setActiveSection} resourceData={resourceData} apiStatus={apiStatus} />;
   }
@@ -3482,6 +3462,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onCreate={onCreate}
         onEdit={onEdit}
         onDelete={onDelete}
+        onToggle={onToggle}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
         onResetSubscription={onResetSubscription}
@@ -3499,6 +3480,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onCreate={onCreate}
         onEdit={onEdit}
         onDelete={onDelete}
+        onToggle={onToggle}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
         onResetSubscription={onResetSubscription}
@@ -3516,6 +3498,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
         onCreate={onCreate}
         onEdit={onEdit}
         onDelete={onDelete}
+        onToggle={onToggle}
         onReload={onReload}
         onGenerateBootstrap={onGenerateBootstrap}
         onResetSubscription={onResetSubscription}
@@ -3540,6 +3523,7 @@ function AppContent({ activeSection, setActiveSection, showToast, setDrawerOpen,
       onCreate={onCreate}
       onEdit={onEdit}
       onDelete={onDelete}
+      onToggle={onToggle}
       onReload={onReload}
       onGenerateBootstrap={onGenerateBootstrap}
       onResetSubscription={onResetSubscription}
@@ -3737,6 +3721,39 @@ export function App() {
     showToast(`${label}已从本地演示数据删除`);
   }
 
+  async function handleToggleResource(sectionId, item) {
+    if (!item) return;
+    const collection = apiCollections[sectionId];
+    const label = resourceFormConfigs[sectionId]?.label || resourceConfigs[sectionId]?.title || "资源";
+    const nextEnabled = item.raw?.enabled === false;
+
+    if (hasAdminApiToken() && collection && item.raw?.id) {
+      try {
+        await adminPatch(`/api/v1/admin/${collection}/${item.raw.id}`, { enabled: nextEnabled });
+        showToast(`${label}已${nextEnabled ? "启用" : "禁用"}`);
+        await loadBackendData({ silent: true });
+      } catch (error) {
+        showToast(`操作失败：${error.message}`);
+      }
+      return;
+    }
+
+    if (!demoModeEnabled) {
+      showToast("请先登录 Backend Core");
+      return;
+    }
+
+    setResourceData((current) => ({
+      ...current,
+      [sectionId]: current[sectionId].map((row) =>
+        row.id === item.id
+          ? { ...row, raw: { ...row.raw, enabled: nextEnabled }, status: nextEnabled ? "运行中" : "停用" }
+          : row
+      ),
+    }));
+    showToast(`${label}已${nextEnabled ? "启用" : "禁用"}（本地演示数据）`);
+  }
+
   async function handleCreateRelay(values) {
     if (hasAdminApiToken()) {
       await adminPost("/api/v1/admin/access-nodes/relay", values);
@@ -3860,6 +3877,7 @@ export function App() {
           onCreate={openCreateEditor}
           onEdit={openEditEditor}
           onDelete={handleDeleteResource}
+          onToggle={handleToggleResource}
           onReload={() => loadBackendData()}
           onGenerateBootstrap={handleGenerateBootstrap}
         />

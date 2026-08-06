@@ -1482,6 +1482,19 @@ a {
   font-size: 15px;
 }
 
+.setting-divider {
+  border: 0;
+  border-top: 1px solid #dfe6ef;
+  margin: 16px 0;
+}
+
+.setting-panel h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #66728a;
+  font-weight: 600;
+}
+
 .panel__header .subtle-link {
   border: 0;
   background: transparent;

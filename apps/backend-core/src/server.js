@@ -185,8 +185,8 @@ async function route(req, res, store, config) {
   }
 
   if (path === "/api/v1/admin" || path.startsWith("/api/v1/admin/")) {
-    await requireAdmin(req, config, store);
-    return routeAdmin(req, res, store, path, url);
+    const auth = await requireAdmin(req, config, store);
+    return routeAdmin(req, res, store, path, url, auth);
   }
 
   if (path === "/api/v1/agents/register") {
@@ -266,7 +266,7 @@ async function route(req, res, store, config) {
   return notFound(res);
 }
 
-async function routeAdmin(req, res, store, path, url) {
+async function routeAdmin(req, res, store, path, url, auth) {
   const segments = path
     .slice("/api/v1/admin".length)
     .split("/")
@@ -343,6 +343,38 @@ async function routeAdmin(req, res, store, path, url) {
       return jsonResponse(res, 200, await store.updateSettings(body));
     }
     return methodNotAllowed(res);
+  }
+
+  if (segments[0] === "me" && segments.length === 2 && segments[1] === "password") {
+    if (req.method !== "POST") {
+      return methodNotAllowed(res);
+    }
+    if (auth.source !== "admin-session") {
+      throw Object.assign(new Error("修改密码需要管理员会话，请从面板登录后操作"), { statusCode: 400 });
+    }
+    const body = await readJson(req);
+    const user = await store.changeAdminPassword({
+      userId: auth.user.id,
+      currentPassword: body.currentPassword,
+      newPassword: body.newPassword,
+      keepSessionId: auth.session.id
+    });
+    return jsonResponse(res, 200, { user });
+  }
+
+  if (segments[0] === "admin-users" && segments.length === 3 && segments[2] === "password") {
+    if (req.method !== "PATCH") {
+      return methodNotAllowed(res);
+    }
+    if (auth.source !== "admin-token" && auth.user?.role !== "owner") {
+      throw Object.assign(new Error("只有 owner 管理员可以重置密码"), { statusCode: 403 });
+    }
+    const body = await readJson(req);
+    const user = await store.resetAdminPassword({
+      username: segments[1],
+      newPassword: body.newPassword
+    });
+    return jsonResponse(res, 200, { user });
   }
 
   if (segments[0] === "users" && segments.length === 3 && segments[2] === "subscription-token") {

@@ -189,6 +189,39 @@ export class JsonStore {
     return { token, user: publicAdminUser(user), expiresAt: session.expiresAt };
   }
 
+  async changeAdminPassword({ userId, currentPassword, newPassword, keepSessionId = null }) {
+    const user = this.state.adminUsers.find((item) => item.id === userId);
+    if (!user || !user.enabled) {
+      throw httpError("Admin user not found", 404);
+    }
+    if (!(await verifyPassword(currentPassword || "", user.passwordHash))) {
+      throw httpError("当前密码不正确", 401);
+    }
+    validateAdminPassword(newPassword);
+    user.passwordHash = await hashPassword(newPassword);
+    user.updatedAt = nowIso();
+    revokeAdminSessions(this.state.adminSessions, user.id, keepSessionId);
+    this.recordAudit("admin_user.password_changed", user.id, { username: user.username });
+    await this.save();
+    return publicAdminUser(user);
+  }
+
+  async resetAdminPassword({ username, newPassword }) {
+    const user = this.state.adminUsers.find(
+      (item) => item.username.toLowerCase() === String(username || "").trim().toLowerCase()
+    );
+    if (!user) {
+      throw httpError("Admin user not found", 404);
+    }
+    validateAdminPassword(newPassword);
+    user.passwordHash = await hashPassword(newPassword);
+    user.updatedAt = nowIso();
+    revokeAdminSessions(this.state.adminSessions, user.id, null);
+    this.recordAudit("admin_user.password_reset", user.id, { username: user.username });
+    await this.save();
+    return publicAdminUser(user);
+  }
+
   findAdminSession(token) {
     const tokenHash = sha256(token || "");
     const session = this.state.adminSessions.find((item) => item.tokenHash === tokenHash && !item.revokedAt);
@@ -1270,6 +1303,32 @@ function shouldResetUsage(user, plan, nowIso) {
     return elapsedMs >= 30 * 24 * 3600 * 1000;
   }
   return false;
+}
+
+function validateAdminPassword(value) {
+  const password = String(value || "");
+  if (password.length < 8) {
+    throw httpError("新密码长度不能少于 8 位", 400);
+  }
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    throw httpError("新密码必须同时包含字母和数字", 400);
+  }
+  if (/(.)\1{7,}/.test(password)) {
+    throw httpError("新密码不能是重复字符", 400);
+  }
+}
+
+function revokeAdminSessions(sessions, userId, keepSessionId) {
+  const now = nowIso();
+  for (const session of sessions) {
+    if (session.userId !== userId || session.revokedAt) {
+      continue;
+    }
+    if (keepSessionId && session.id === keepSessionId) {
+      continue;
+    }
+    session.revokedAt = now;
+  }
 }
 
 function withTimestamps(record) {

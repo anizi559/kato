@@ -2483,6 +2483,8 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
   const [apiSettings, setApiSettings] = useState(() => getAdminApiSettings());
   const [frontendLocal, setFrontendLocal] = useState({ adminPath: "", loaded: false });
   const [frontendPathInput, setFrontendPathInput] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
+  const [resetForm, setResetForm] = useState({ username: "", password: "" });
   const [subscriptionSettings, setSubscriptionSettings] = useState({
     subscriptionBaseUrl: "",
     subscriptionPathPrefix: "go",
@@ -2564,6 +2566,46 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
     }
   }
 
+  async function saveAdminPassword() {
+    if (!passwordForm.current || !passwordForm.next) {
+      showToast("请填写当前密码和新密码");
+      return;
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      showToast("两次输入的新密码不一致");
+      return;
+    }
+    try {
+      await adminPost("/api/v1/admin/me/password", {
+        currentPassword: passwordForm.current,
+        newPassword: passwordForm.next
+      });
+      showToast("密码已修改");
+      setPasswordForm({ current: "", next: "", confirm: "" });
+    } catch (error) {
+      showToast(`修改失败：${error.message}`);
+    }
+  }
+
+  async function resetAdminPassword() {
+    if (!resetForm.username || !resetForm.password) {
+      showToast("请填写目标账号和新密码");
+      return;
+    }
+    if (!window.confirm(`确认重置 ${resetForm.username} 的密码？该账号所有会话将立即失效。`)) {
+      return;
+    }
+    try {
+      await adminPatch(`/api/v1/admin/admin-users/${encodeURIComponent(resetForm.username)}/password`, {
+        newPassword: resetForm.password
+      });
+      showToast("密码已重置");
+      setResetForm({ username: "", password: "" });
+    } catch (error) {
+      showToast(`重置失败：${error.message}`);
+    }
+  }
+
   return (
     <div className="settings-shell">
       <section className="main-pane main-pane--wide">
@@ -2606,9 +2648,16 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
 
           <section className="setting-panel">
             <h2>管理员</h2>
-            <label><span>管理员账号</span><input defaultValue="admin" /></label>
-            <label><span>Session 有效期</span><select defaultValue="12h"><option>12h</option><option>24h</option><option>7d</option></select></label>
-            <button className="button button--secondary" type="button" onClick={() => showToast("管理 Token 轮换流程已准备")}><IconShieldLock size={16} stroke={1.9} />轮换管理 Token</button>
+            <label><span>管理员账号</span><input value="admin" disabled /></label>
+            <label><span>当前密码</span><input type="password" value={passwordForm.current} onChange={(event) => setPasswordForm((current) => ({ ...current, current: event.target.value }))} /></label>
+            <label><span>新密码</span><input type="password" placeholder="至少 8 位，包含字母和数字" value={passwordForm.next} onChange={(event) => setPasswordForm((current) => ({ ...current, next: event.target.value }))} /></label>
+            <label><span>确认新密码</span><input type="password" value={passwordForm.confirm} onChange={(event) => setPasswordForm((current) => ({ ...current, confirm: event.target.value }))} /></label>
+            <button className="button button--primary" type="button" onClick={saveAdminPassword}><IconShieldLock size={16} stroke={1.9} />修改密码</button>
+            <div className="setting-divider" />
+            <h3>重置管理员密码（忘记密码时）</h3>
+            <label><span>目标账号</span><input value={resetForm.username} onChange={(event) => setResetForm((current) => ({ ...current, username: event.target.value }))} /></label>
+            <label><span>新密码</span><input type="password" value={resetForm.password} onChange={(event) => setResetForm((current) => ({ ...current, password: event.target.value }))} /></label>
+            <button className="button button--secondary" type="button" onClick={resetAdminPassword}><IconLock size={16} stroke={1.9} />用管理 Token 重置</button>
           </section>
 
           <section className="setting-panel">

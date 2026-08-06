@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.8.1"
+APP_VERSION="0.9.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -49,7 +49,7 @@ frontend_pairing_token="${KATO_FRONTEND_PAIRING_TOKEN:-}"
 panel_admin_path="${KATO_PANEL_ADMIN_PATH:-}"
 agent_name="${KATO_AGENT_NAME:-}"
 bootstrap_token="${KATO_BOOTSTRAP_TOKEN:-}"
-agent_auto_start="${KATO_AGENT_AUTO_START:-false}"
+agent_auto_start="${KATO_AGENT_AUTO_START:-true}"
 binary_validation="${KATO_BINARY_VALIDATION:-false}"
 subscription_path_prefix="${KATO_SUBSCRIPTION_PATH_PREFIX:-go}"
 subscription_port="${KATO_SUBSCRIPTION_PORT:-8081}"

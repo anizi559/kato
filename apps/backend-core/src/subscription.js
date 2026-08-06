@@ -25,7 +25,7 @@ export function generateSubscriptionContent(state, token, { format = "auto", use
   const plan = state.plans.find((item) => item.id === user.planId);
   const settings = state.settings || {};
   const resolvedFormat = resolveSubscriptionFormat(format, userAgent);
-  const nodes = buildSubscriptionNodes(user, plan, visibleAccessNodes(state, user, plan), state);
+  const nodes = buildSubscriptionNodes(user, plan, visibleSubscriptionEntries(state, user, plan), state);
 
   let content = "";
   let contentType = "text/plain; charset=utf-8";
@@ -51,49 +51,95 @@ export function generateSubscriptionContent(state, token, { format = "auto", use
   };
 }
 
-function visibleAccessNodes(state, user, plan) {
-  return state.accessNodes.filter((accessNode) => {
+function visibleSubscriptionEntries(state, user, plan) {
+  const entries = [];
+
+  for (const inbound of state.nodeInbounds) {
+    if (!isInboundUsable(inbound, state)) {
+      continue;
+    }
+    const proxyNode = state.proxyNodes.find((item) => item.id === inbound.proxyNodeId);
+    const host = inbound.entryHost || proxyNode?.entryDomain || proxyNode?.publicHost || proxyNode?.publicIp || "";
+    if (!host) {
+      continue;
+    }
+    entries.push({
+      id: `inbound:${inbound.id}`,
+      kind: "direct",
+      name: inbound.name,
+      host,
+      port: inbound.port,
+      transport: inbound.transport || "tcp",
+      protocol: inbound.protocol,
+      groups: inbound.groups || [],
+      inbound,
+      proxyNode,
+      relay: null
+    });
+  }
+
+  for (const accessNode of state.accessNodes) {
     if (!isAccessNodeUsable(accessNode, state)) {
-      return false;
+      continue;
     }
-
-    const allowedNodes = nonEmpty(user.access.accessNodes, plan?.allowedAccessNodes);
-    if (allowedNodes.length && !allowedNodes.includes(accessNode.id)) {
-      return false;
-    }
-
-    const nodeGroups = nonEmpty(user.access.nodeGroups, plan?.allowedNodeGroups);
-    if (nodeGroups.length && !intersects(accessNode.groups, nodeGroups)) {
-      return false;
-    }
-
-    if (accessNode.type === "relay") {
-      const relay = state.transitRelays.find((item) => item.id === accessNode.transitRelayId);
-      const relayGroups = nonEmpty(user.access.relayGroups, plan?.allowedRelayGroups);
-      if (relayGroups.length && !(relay && intersects(relay.groups, relayGroups))) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-}
-
-function buildSubscriptionNodes(user, plan, accessNodes, state) {
-  const planHy2 = plan?.hysteria2 || {};
-  return accessNodes.map((accessNode) => {
     const inbound = state.nodeInbounds.find((item) => item.id === accessNode.inboundId);
     const proxyNode = state.proxyNodes.find((item) => item.id === accessNode.proxyNodeId);
-    const relay = accessNode.type === "relay" ? state.transitRelays.find((item) => item.id === accessNode.transitRelayId) : null;
-    const base = {
+    const relay = state.transitRelays.find((item) => item.id === accessNode.transitRelayId);
+    entries.push({
+      id: `access:${accessNode.id}`,
+      kind: "relay",
       name: accessNode.name,
       host: accessNode.host,
       port: accessNode.port,
       transport: accessNode.transport || "tcp",
-      protocol: accessNode.protocol
+      protocol: accessNode.protocol,
+      groups: accessNode.groups || [],
+      inbound,
+      proxyNode,
+      relay
+    });
+  }
+
+  return entries.filter((entry) => {
+    const allowedNodes = nonEmpty(user.access.accessNodes, plan?.allowedAccessNodes);
+    if (allowedNodes.length && !allowedNodes.includes(entry.id)) {
+      return false;
+    }
+    const nodeGroups = nonEmpty(user.access.nodeGroups, plan?.allowedNodeGroups);
+    if (nodeGroups.length && !intersects(entry.groups, nodeGroups)) {
+      return false;
+    }
+    if (entry.kind === "relay") {
+      const relayGroups = nonEmpty(user.access.relayGroups, plan?.allowedRelayGroups);
+      if (relayGroups.length && !(entry.relay && intersects(entry.relay.groups, relayGroups))) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function isInboundUsable(inbound, state) {
+  if (!inbound.enabled) {
+    return false;
+  }
+  const proxyNode = state.proxyNodes.find((item) => item.id === inbound.proxyNodeId);
+  return Boolean(proxyNode?.enabled);
+}
+
+function buildSubscriptionNodes(user, plan, entries, state) {
+  const planHy2 = plan?.hysteria2 || {};
+  return entries.map((entry) => {
+    const { inbound, proxyNode, relay } = entry;
+    const base = {
+      name: entry.name,
+      host: entry.host,
+      port: entry.port,
+      transport: entry.transport || "tcp",
+      protocol: entry.protocol
     };
 
-    if (accessNode.protocol === PROTOCOLS.VLESS_REALITY) {
+    if (entry.protocol === PROTOCOLS.VLESS_REALITY) {
       const reality = inbound?.config?.reality || {};
       return {
         ...base,
@@ -107,14 +153,14 @@ function buildSubscriptionNodes(user, plan, accessNodes, state) {
       };
     }
 
-    if (accessNode.protocol === PROTOCOLS.HYSTERIA2) {
+    if (entry.protocol === PROTOCOLS.HYSTERIA2) {
       const tls = inbound?.config?.tls || {};
       const obfs = inbound?.config?.obfs || {};
       const bandwidth = inbound?.config?.bandwidth || {};
       return {
         ...base,
         password: user.credentials.hysteria2Password,
-        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || accessNode.host,
+        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || entry.host,
         obfsEnabled: obfs.enabled !== false,
         obfsType: obfs.type || "salamander",
         obfsPassword: obfs.password || "",
@@ -124,17 +170,17 @@ function buildSubscriptionNodes(user, plan, accessNodes, state) {
       };
     }
 
-    if (accessNode.protocol === PROTOCOLS.ANYTLS) {
+    if (entry.protocol === PROTOCOLS.ANYTLS) {
       const tls = inbound?.config?.tls || {};
       return {
         ...base,
         password: user.credentials.anytlsPassword,
-        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || accessNode.host,
+        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || entry.host,
         insecure: false
       };
     }
 
-    return { ...base, raw: { accessNode, inbound, proxyNode, relay } };
+    return { ...base, raw: { entry, inbound, proxyNode, relay } };
   });
 }
 

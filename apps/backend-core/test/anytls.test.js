@@ -66,7 +66,7 @@ test("anytls inbound compiles desired state and subscription formats", async () 
     assert.equal(desired.desiredState.inbounds.length, 1);
     assert.equal(desired.desiredState.inbounds[0].protocol, PROTOCOLS.ANYTLS);
     assert.equal(desired.desiredState.inbounds[0].users[0].credential.password, user.credentials.anytlsPassword);
-    assert.equal(desired.desiredState.accessNodes.length, 1);
+    assert.equal(desired.desiredState.accessNodes.length, 0);
 
     const subAgent = await registerResourceAgent(app, "subscription-edge", null, "sub-anytls");
     const singbox = await fetchSubscription(app, subAgent, user.subscriptionToken, "sing-box/1.13.0");

@@ -54,13 +54,9 @@ test("health probes mark access nodes ok and failed with alerts", async () => {
       protocol: PROTOCOLS.VLESS_REALITY,
       port: tcp.port
     });
-    const accessNodes = await adminList(app, "access-nodes");
-    const accessNode = accessNodes.find((item) => item.inboundId === inbound.id);
-    assert.ok(accessNode);
-
     const first = await app.store.runHealthProbes();
     assert.equal(first.probed, 1);
-    const healthy = app.store.getResource("access-nodes", accessNode.id);
+    const healthy = app.store.getResource("node-inbounds", inbound.id);
     assert.equal(healthy.health.status, "ok");
     assert.ok(Number.isFinite(healthy.health.latencyMs));
 
@@ -70,10 +66,10 @@ test("health probes mark access nodes ok and failed with alerts", async () => {
     await tcp.close();
     const second = await app.store.runHealthProbes();
     assert.equal(second.changed, true);
-    const failed = app.store.getResource("access-nodes", accessNode.id);
+    const failed = app.store.getResource("node-inbounds", inbound.id);
     assert.equal(failed.health.status, "failed");
     const alerts = app.store.listAlerts();
-    assert.ok(alerts.some((alert) => alert.type === "probe.failed" && alert.resourceId === accessNode.id));
+    assert.ok(alerts.some((alert) => alert.type === "probe.failed" && alert.resourceId === inbound.id));
   } finally {
     await tcp.close().catch(() => {});
     await app.close();

@@ -12,7 +12,9 @@ const RESOURCE_SPECS = Object.freeze({
   "node-inbounds": { stateKey: "nodeInbounds", idPrefix: "inbound", label: "node inbound" },
   "transit-relays": { stateKey: "transitRelays", idPrefix: "relay", label: "transit relay" },
   "access-nodes": { stateKey: "accessNodes", idPrefix: "access", label: "access node" },
-  "relay-rules": { stateKey: "relayRules", idPrefix: "relay_rule", label: "relay rule" }
+  "relay-rules": { stateKey: "relayRules", idPrefix: "relay_rule", label: "relay rule" },
+  "frontend-edges": { stateKey: "frontendEdges", idPrefix: "front", label: "frontend edge" },
+  "subscription-edges": { stateKey: "subscriptionEdges", idPrefix: "sub_edge", label: "subscription edge" }
 });
 
 function emptyState() {
@@ -32,6 +34,7 @@ function emptyState() {
       subscriptionUserinfo: true,
       subscriptionBaseUrl: "",
       subscriptionPathPrefix: "go",
+      nodeBackendUrl: "",
       agentOfflineSeconds: 180,
       alertWebhookUrl: "",
       telegramBotToken: "",
@@ -52,7 +55,9 @@ function emptyState() {
     accessNodes: [],
     relayRules: [],
     auditLogs: [],
-    alerts: []
+    alerts: [],
+    frontendEdges: [],
+    subscriptionEdges: []
   };
 }
 
@@ -484,6 +489,27 @@ export class JsonStore {
     const targets = [];
     const now = nowIso();
 
+    for (const inbound of this.state.nodeInbounds) {
+      if (!inbound.enabled) {
+        continue;
+      }
+      const proxyNode = this.state.proxyNodes.find((item) => item.id === inbound.proxyNodeId);
+      if (!proxyNode?.enabled) {
+        continue;
+      }
+      const host = inbound.entryHost || proxyNode.entryDomain || proxyNode.publicHost || proxyNode.publicIp;
+      if (!host || host === "0.0.0.0" || host === "::") {
+        continue;
+      }
+      targets.push({
+        kind: "inbound",
+        resource: inbound,
+        host,
+        port: inbound.port,
+        protocol: inbound.transport || (inbound.protocol === PROTOCOLS.HYSTERIA2 ? "udp" : "tcp")
+      });
+    }
+
     for (const accessNode of this.state.accessNodes) {
       if (!accessNode.enabled) {
         continue;
@@ -595,7 +621,9 @@ export class JsonStore {
         nodeInbounds: this.state.nodeInbounds.length,
         transitRelays: this.state.transitRelays.length,
         accessNodes: this.state.accessNodes.length,
-        relayRules: this.state.relayRules.length
+        relayRules: this.state.relayRules.length,
+        frontendEdges: this.state.frontendEdges.length,
+        subscriptionEdges: this.state.subscriptionEdges.length
       }
     };
   }
@@ -620,6 +648,7 @@ export class JsonStore {
       "subscriptionUserinfo",
       "subscriptionBaseUrl",
       "subscriptionPathPrefix",
+      "nodeBackendUrl",
       "agentOfflineSeconds",
       "alertWebhookUrl",
       "telegramBotToken",
@@ -646,11 +675,15 @@ export class JsonStore {
     return clone(this.state.settings);
   }
 
-  async resetUserSubscriptionToken(userId) {
+  async rotateUserCredentials(userId) {
     const user = this.requireExisting("users", userId);
     user.subscriptionToken = createSecret("sub");
+    user.credentials.vlessUuid = createUuid();
+    user.credentials.vlessFlow = user.credentials.vlessFlow || "xtls-rprx-vision";
+    user.credentials.hysteria2Password = createSecret("hy2");
+    user.credentials.anytlsPassword = createSecret("anytls");
     user.updatedAt = nowIso();
-    this.recordAudit("user.subscription_token_reset", user.id, { name: user.name });
+    this.recordAudit("user.credentials_rotated", user.id, { name: user.name });
     await this.save();
     return clone(user);
   }
@@ -750,10 +783,16 @@ export class JsonStore {
       if (input.type === "relay") {
         return this.createRelayAccessNodeRecord(input);
       }
-      return this.createDirectAccessNodeRecord(input);
+      throw httpError("直连访问入口已并入协议入站，请在协议入站中直接配置", 400);
     }
     if (collection === "relay-rules") {
       return this.createRelayRuleRecord(input);
+    }
+    if (collection === "frontend-edges") {
+      return this.createFrontendEdgeRecord(input);
+    }
+    if (collection === "subscription-edges") {
+      return this.createSubscriptionEdgeRecord(input);
     }
     throw httpError(`Unsupported resource collection: ${collection}`, 404);
   }
@@ -869,20 +908,13 @@ export class JsonStore {
       protocol,
       listen: input.listen || "0.0.0.0",
       port: requiredPort(input.port, "node inbound port"),
+      entryHost: input.entryHost || null,
       transport,
       tags: asArray(input.tags),
       groups: asArray(input.groups),
       config: defaultInboundConfig(protocol, input.config || {}, proxyNode)
     });
     this.state.nodeInbounds.push(record);
-    if (input.createDirectAccessNode !== false) {
-      this.createDirectAccessNodeRecord({
-        name: input.directAccessName || record.name,
-        inboundId: record.id,
-        tags: record.tags,
-        groups: record.groups
-      });
-    }
     return record;
   }
 
@@ -1014,6 +1046,53 @@ export class JsonStore {
     return record;
   }
 
+  createFrontendEdgeRecord(input) {
+    const name = requiredName(input.name || "Frontend Edge", "frontend edge name");
+    this.assertNameAvailable("frontend-edges", name);
+    const record = withTimestamps({
+      id: createId("front"),
+      name,
+      enabled: input.enabled ?? true,
+      publicHost: input.publicHost || input.domain || "",
+      publicIp: input.publicIp || "",
+      domain: input.domain || "",
+      region: input.region || "",
+      provider: input.provider || "",
+      tlsEnabled: input.tlsEnabled ?? false,
+      port: input.port || 80,
+      agentId: input.agentId || null,
+      notes: input.notes || "",
+      tags: asArray(input.tags),
+      groups: asArray(input.groups)
+    });
+    this.state.frontendEdges.push(record);
+    return record;
+  }
+
+  createSubscriptionEdgeRecord(input) {
+    const name = requiredName(input.name || "Subscription Edge", "subscription edge name");
+    this.assertNameAvailable("subscription-edges", name);
+    const record = withTimestamps({
+      id: createId("sub_edge"),
+      name,
+      enabled: input.enabled ?? true,
+      publicHost: input.publicHost || input.domain || "",
+      publicIp: input.publicIp || "",
+      domain: input.domain || "",
+      region: input.region || "",
+      provider: input.provider || "",
+      tlsEnabled: input.tlsEnabled ?? false,
+      port: input.port || 80,
+      pathPrefix: input.pathPrefix || "go",
+      agentId: input.agentId || null,
+      notes: input.notes || "",
+      tags: asArray(input.tags),
+      groups: asArray(input.groups)
+    });
+    this.state.subscriptionEdges.push(record);
+    return record;
+  }
+
   deleteResourceRecord(collection, id, options) {
     const spec = resourceSpec(collection);
     removeWhere(this.state[spec.stateKey], (item) => item.id === id);
@@ -1079,6 +1158,12 @@ export class JsonStore {
     if (role === "transit-relay") {
       this.requireExisting("transit-relays", resourceId);
     }
+    if (role === "frontend-edge") {
+      this.requireExisting("frontend-edges", resourceId);
+    }
+    if (role === "subscription-edge") {
+      this.requireExisting("subscription-edges", resourceId);
+    }
   }
 
   linkAgentToManagedResource(agent, resourceId) {
@@ -1099,6 +1184,26 @@ export class JsonStore {
       if (relay) {
         relay.agentId = agent.id;
         relay.updatedAt = nowIso();
+      }
+    }
+
+    if (agent.role === "frontend-edge") {
+      const edge =
+        (resourceId && this.state.frontendEdges.find((item) => item.id === resourceId)) ||
+        this.state.frontendEdges.find((item) => item.name === agent.name);
+      if (edge) {
+        edge.agentId = agent.id;
+        edge.updatedAt = nowIso();
+      }
+    }
+
+    if (agent.role === "subscription-edge") {
+      const edge =
+        (resourceId && this.state.subscriptionEdges.find((item) => item.id === resourceId)) ||
+        this.state.subscriptionEdges.find((item) => item.name === agent.name);
+      if (edge) {
+        edge.agentId = agent.id;
+        edge.updatedAt = nowIso();
       }
     }
   }
@@ -1175,9 +1280,44 @@ function normalizeState(rawState) {
   state.agents = Array.isArray(state.agents) ? state.agents : [];
   state.auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : [];
   state.alerts = Array.isArray(state.alerts) ? state.alerts : [];
+  state.frontendEdges = Array.isArray(state.frontendEdges) ? state.frontendEdges : [];
+  state.subscriptionEdges = Array.isArray(state.subscriptionEdges) ? state.subscriptionEdges : [];
   state.configRevision = state.configRevision || 1;
   state.configUpdatedAt = state.configUpdatedAt || state.createdAt || nowIso();
-  state.schemaVersion = 2;
+  state.schemaVersion = 3;
+
+  // v0.9 迁移：直连访问入口并入协议入站，权限 ID 改为 inbound:/access: 前缀
+  const permissionMap = new Map();
+  for (const accessNode of state.accessNodes) {
+    if (accessNode.type === "direct") {
+      const inbound = state.nodeInbounds.find((item) => item.id === accessNode.inboundId);
+      if (inbound) {
+        if (!inbound.entryHost && accessNode.host) {
+          inbound.entryHost = accessNode.host;
+        }
+        permissionMap.set(accessNode.id, `inbound:${inbound.id}`);
+      }
+    } else {
+      permissionMap.set(accessNode.id, `access:${accessNode.id}`);
+    }
+  }
+  state.accessNodes = state.accessNodes.filter((accessNode) => accessNode.type !== "direct");
+  for (const plan of state.plans) {
+    if (!Array.isArray(plan.allowedAccessNodes)) {
+      plan.allowedAccessNodes = [];
+    }
+    plan.allowedAccessNodes = plan.allowedAccessNodes
+      .map((id) => permissionMap.get(id) || id)
+      .filter(Boolean);
+  }
+  for (const user of state.users) {
+    if (!Array.isArray(user.access?.accessNodes)) {
+      user.access.accessNodes = [];
+    }
+    user.access.accessNodes = user.access.accessNodes
+      .map((id) => permissionMap.get(id) || id)
+      .filter(Boolean);
+  }
   return state;
 }
 

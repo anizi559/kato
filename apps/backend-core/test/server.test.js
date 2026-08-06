@@ -213,9 +213,7 @@ test("admin resources compile proxy and relay desired states", async () => {
     assert.equal(inbound.protocol, PROTOCOLS.VLESS_REALITY);
 
     const directAccessNodes = await adminList(app, "access-nodes");
-    assert.equal(directAccessNodes.length, 1);
-    assert.equal(directAccessNodes[0].type, "direct");
-    assert.equal(directAccessNodes[0].host, "hk.example.com");
+    assert.equal(directAccessNodes.length, 0);
 
     const relay = await adminPost(app, "transit-relays", {
       name: "hk-relay-01",
@@ -243,7 +241,7 @@ test("admin resources compile proxy and relay desired states", async () => {
     assert.equal(proxyDesired.desiredState.inbounds.length, 1);
     assert.equal(proxyDesired.desiredState.inbounds[0].users.length, 1);
     assert.equal(proxyDesired.desiredState.inbounds[0].users[0].credential.uuid, user.credentials.vlessUuid);
-    assert.equal(proxyDesired.desiredState.accessNodes.length, 2);
+    assert.equal(proxyDesired.desiredState.accessNodes.length, 1);
 
     const relayDesired = await getDesiredState(app, relayAgent);
     assert.equal(relayDesired.desiredState.relay.id, relay.id);

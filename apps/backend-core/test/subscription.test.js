@@ -141,7 +141,7 @@ test("subscription supports all protocols and filters by regions, groups and ena
       region: "JP",
       groups: ["default"]
     });
-    await adminPost(app, "node-inbounds", {
+    const jpInbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: jpProxy.id,
       name: "JP VLESS",
       protocol: PROTOCOLS.VLESS_REALITY,
@@ -165,14 +165,10 @@ test("subscription supports all protocols and filters by regions, groups and ena
     assert.match(protocolIgnoredText, /^vless:\/\//m);
     assert.match(protocolIgnoredText, /^hysteria2:\/\//m);
 
-    // 节点勾选：HK Only 只勾选香港的两个节点
-    const accessNodes = await adminList(app, "access-nodes");
-    const hkVlessAccess = accessNodes.find((item) => item.inboundId === vlessInbound.id);
-    const hkHy2Access = accessNodes.find((item) => item.inboundId === hy2Inbound.id);
-    const jpAccess = accessNodes.find((item) => item.host === "jp.example.com");
+    // 节点勾选：HK Only 只勾选香港的两个入站
     const hkOnlyPlan = await adminPost(app, "plans", {
       name: "HK Only",
-      allowedAccessNodes: [hkVlessAccess.id, hkHy2Access.id]
+      allowedAccessNodes: [`inbound:${vlessInbound.id}`, `inbound:${hy2Inbound.id}`]
     });
     const hkOnlyUser = await adminPost(app, "users", {
       name: "hk-user",
@@ -189,7 +185,7 @@ test("subscription supports all protocols and filters by regions, groups and ena
     const jpOverrideUser = await adminPost(app, "users", {
       name: "jp-override",
       planId: protocolIgnored.id,
-      access: { accessNodes: [jpAccess.id] }
+      access: { accessNodes: [`inbound:${jpInbound.id}`] }
     });
     const jpOverrideText = Buffer.from(
       await (await fetchSubscription(app, agent, jpOverrideUser.subscriptionToken)).text(),
@@ -209,8 +205,8 @@ test("subscription supports all protocols and filters by regions, groups and ena
     const wrongGroupText = Buffer.from(await wrongGroupResponse.text(), "base64").toString("utf8");
     assert.equal(wrongGroupText.trim(), "");
 
-    // 停用节点仍然隐藏
-    await adminPatch(app, `access-nodes/${hkVlessAccess.id}`, { enabled: false });
+    // 停用入站仍然隐藏
+    await adminPatch(app, `node-inbounds/${vlessInbound.id}`, { enabled: false });
     const disabledText = Buffer.from(
       await (await fetchSubscription(app, agent, user.subscriptionToken)).text(),
       "base64"
@@ -317,11 +313,14 @@ test("subscription endpoint rejects invalid credentials, roles and tokens", asyn
   }
 });
 
-test("admin can reset subscription token and update settings", async () => {
+test("admin can rotate subscription token and credentials, and update settings", async () => {
   const app = await startTestServer();
   try {
     const { user, agent } = await seedSubscriptions(app);
     const oldToken = user.subscriptionToken;
+    const oldUuid = user.credentials.vlessUuid;
+    const oldHy2 = user.credentials.hysteria2Password;
+    const oldAnyTls = user.credentials.anytlsPassword;
 
     const resetResponse = await requestJson(app, `/api/v1/admin/users/${user.id}/subscription-token`, {
       method: "POST",
@@ -331,6 +330,15 @@ test("admin can reset subscription token and update settings", async () => {
     const newToken = resetResponse.body.user.subscriptionToken;
     assert.match(newToken, /^sub_/);
     assert.notEqual(newToken, oldToken);
+    assert.notEqual(resetResponse.body.user.credentials.vlessUuid, oldUuid);
+    assert.notEqual(resetResponse.body.user.credentials.hysteria2Password, oldHy2);
+    assert.notEqual(resetResponse.body.user.credentials.anytlsPassword, oldAnyTls);
+
+    // 旧凭据不应再出现在订阅内容里（模拟泄漏的旧节点配置失效）
+    const newSubscription = await fetchSubscription(app, agent, newToken);
+    const newBody = Buffer.from(await newSubscription.text(), "base64").toString("utf8");
+    assert.doesNotMatch(newBody, new RegExp(oldUuid));
+    assert.doesNotMatch(newBody, new RegExp(oldHy2));
 
     const oldTokenResponse = await fetchSubscription(app, agent, oldToken);
     assert.equal(oldTokenResponse.status, 404);

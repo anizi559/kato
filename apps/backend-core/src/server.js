@@ -381,7 +381,7 @@ async function routeAdmin(req, res, store, path, url, auth) {
     if (req.method !== "POST") {
       return methodNotAllowed(res);
     }
-    const user = await store.resetUserSubscriptionToken(segments[1]);
+    const user = await store.rotateUserCredentials(segments[1]);
     return jsonResponse(res, 200, { user });
   }
 

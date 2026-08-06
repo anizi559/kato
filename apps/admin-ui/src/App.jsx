@@ -124,13 +124,13 @@ const columns = {
     { key: "heartbeat", label: "心跳", width: "80px" },
   ],
   inbounds: [
-    { key: "name", label: "入站", primary: true, width: "176px", subKey: "summary" },
+    { key: "name", label: "节点", primary: true, width: "176px", subKey: "summary" },
     { key: "protocol", label: "协议", width: "112px" },
     { key: "proxyNode", label: "代理服务器", width: "96px" },
+    { key: "displayHost", label: "直连地址", width: "150px" },
     { key: "port", label: "端口", width: "54px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
-    { key: "directAccess", label: "直连", width: "54px" },
-    { key: "relayAccess", label: "中转", width: "54px" },
+    { key: "relayAccess", label: "中转入口", width: "68px" },
     { key: "users", label: "用户", width: "58px" },
     { key: "configVersion", label: "版本", width: "52px" },
   ],
@@ -356,14 +356,14 @@ const resourceConfigs = {
     preview: (row) => `proxy_node: ${row.id}\nhost: ${row.host}\nregion: ${row.region}\nruntimes:\n  xray: enabled\n  hysteria2: enabled\nconfig_revision: ${row.configVersion}`,
   },
   inbounds: {
-    title: "协议入站",
-    subtitle: "管理 VLESS REALITY / Hysteria2 入站和自动 direct Access Node 联动",
+    title: "节点",
+    subtitle: "添加节点：选择代理服务器、协议和配置，保存后自动下发到节点服务器",
     data: inbounds,
     columns: columns.inbounds,
-    tableLabel: "协议入站列表",
-    primaryAction: "新建协议入站",
+    tableLabel: "节点列表",
+    primaryAction: "添加节点",
     secondaryAction: "批量启用",
-    searchPlaceholder: "搜索入站、协议或代理服务器...",
+    searchPlaceholder: "搜索节点名称、协议或代理服务器...",
     searchKeys: ["id", "name", "protocol", "proxyNode"],
     segments: [{ label: "All", value: "All" }, { label: "VLESS", value: "VLESS REALITY" }, { label: "HY2", value: "Hysteria2" }],
     segmentKey: "protocol",
@@ -372,10 +372,10 @@ const resourceConfigs = {
       { key: "status", label: "状态", options: ["全部", "运行中", "待发布"] },
       { key: "port", label: "端口", options: ["全部", "443"] },
     ],
-    detailRows: [["协议", "protocol"], ["代理服务器", "proxyNode"], ["监听地址", "listen"], ["监听端口", "port"], ["状态", "status"], ["flow / 模式", "flow"]],
-    relationRows: [["直连 Access", "directAccess"], ["中转 Access", "relayAccess"], ["用户数量", "users"], ["配置版本", "configVersion"]],
+    detailRows: [["协议", "protocol"], ["代理服务器", "proxyNode"], ["直连地址", "displayHost"], ["监听端口", "port"], ["状态", "status"], ["flow / 模式", "flow"]],
+    relationRows: [["中转入口", "relayAccess"], ["用户数量", "users"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
-    preview: (row) => `inbound: ${row.id}\nprotocol: ${row.protocol}\nproxy_node: ${row.proxyNode}\nlisten: ${row.listen}:${row.port}\nflow: ${row.flow}\nauto_direct_access: true`,
+    preview: (row) => `node: ${row.id}\nprotocol: ${row.protocol}\nproxy_node: ${row.proxyNode}\ndirect: ${row.displayHost}:${row.port}\nrelay_entries: ${row.relayAccess}\nflow: ${row.flow}`,
   },
   "transit-relays": {
     title: "中转服务器",
@@ -675,9 +675,11 @@ const apiCollections = {
   "transit-relays": "transit-relays",
   "access-nodes": "access-nodes",
   "relay-rules": "relay-rules",
+  "frontend-edges": "frontend-edges",
+  "subscription-edges": "subscription-edges",
 };
 
-const backendCollections = ["plans", "users", "proxy-nodes", "node-inbounds", "transit-relays", "access-nodes", "relay-rules"];
+const backendCollections = ["plans", "users", "proxy-nodes", "node-inbounds", "transit-relays", "access-nodes", "relay-rules", "frontend-edges", "subscription-edges"];
 const writableSections = new Set(Object.keys(apiCollections));
 const bootstrapRoleBySection = {
   "proxy-nodes": "proxy-node",
@@ -885,6 +887,8 @@ function adaptBackendResources({ collections, agents: rawAgents, summary, alerts
   const relayRaw = collections["transit-relays"] || [];
   const accessRaw = collections["access-nodes"] || [];
   const ruleRaw = collections["relay-rules"] || [];
+  const frontendRaw = collections["frontend-edges"] || [];
+  const subscriptionRaw = collections["subscription-edges"] || [];
   const agentsRaw = rawAgents || [];
 
   const plansById = indexById(plansRaw);
@@ -928,11 +932,55 @@ function adaptBackendResources({ collections, agents: rawAgents, summary, alerts
     "transit-relays": relayRaw.map((relay) => adaptTransitRelay(relay, context)),
     "access-nodes": accessRaw.map((accessNode) => adaptAccessNode(accessNode, context)),
     "relay-rules": ruleRaw.map((rule) => adaptRelayRule(rule, context)),
+    "frontend-edges": frontendRaw.map((edge) => adaptFrontendEdge(edge, context)),
+    "subscription-edges": subscriptionRaw.map((edge) => adaptSubscriptionEdge(edge, context)),
     agents: agentsRaw.map((agent) => adaptAgent(agent, context)),
     alerts: alerts.map((alert) => adaptAlert(alert)),
     "audit-logs": auditLogs.map((entry) => adaptAuditLog(entry)),
     traffic: (trafficSummary?.users || []).map((user) => adaptTrafficRow(user)),
     config: adaptConfigReleases(summary, agentsRaw),
+  };
+}
+
+function adaptFrontendEdge(edge, context) {
+  const agent = edge.agentId ? context.agentsById.get(edge.agentId) : null;
+  return {
+    id: edge.name || edge.id,
+    resourceId: edge.id,
+    raw: edge,
+    name: edge.name || edge.id,
+    host: edge.publicHost || edge.domain || "-",
+    region: edge.region || "-",
+    status: agent ? (agent.status === "online" ? "在线" : "离线") : edge.enabled === false ? "停用" : "未注册",
+    version: agent?.version || "-",
+    certificate: edge.tlsEnabled ? "HTTPS" : "HTTP",
+    camouflage: "工具站",
+    backend: "-",
+    heartbeat: agent?.lastSeenAt ? isoText(agent.lastSeenAt) : "-",
+    port: String(edge.port || 80),
+    createdAt: isoText(edge.createdAt),
+    appliedAt: isoText(edge.updatedAt || edge.createdAt),
+  };
+}
+
+function adaptSubscriptionEdge(edge, context) {
+  const agent = edge.agentId ? context.agentsById.get(edge.agentId) : null;
+  return {
+    id: edge.name || edge.id,
+    resourceId: edge.id,
+    raw: edge,
+    name: edge.name || edge.id,
+    host: edge.publicHost || edge.domain || "-",
+    region: edge.region || "-",
+    status: agent ? (agent.status === "online" ? "在线" : "离线") : edge.enabled === false ? "停用" : "未注册",
+    cacheTtl: "60s",
+    rateLimit: "60/min",
+    policies: "-",
+    pathPrefix: edge.pathPrefix || "go",
+    certificate: edge.tlsEnabled ? "HTTPS" : "HTTP",
+    lastAccess: agent?.lastSeenAt ? isoText(agent.lastSeenAt) : "-",
+    createdAt: isoText(edge.createdAt),
+    appliedAt: isoText(edge.updatedAt || edge.createdAt),
   };
 }
 
@@ -1059,8 +1107,8 @@ function adaptProxyNode(node, context) {
 
 function adaptInbound(inbound, context) {
   const proxyNode = context.proxyById.get(inbound.proxyNodeId);
-  const directCount = context.accessRaw.filter((item) => item.inboundId === inbound.id && item.type === "direct").length;
   const relayCount = context.rulesByInbound[inbound.id] || 0;
+  const host = inbound.entryHost || proxyNode?.entryDomain || proxyNode?.publicHost || proxyNode?.publicIp || "-";
   return {
     id: inbound.name || inbound.id,
     resourceId: inbound.id,
@@ -1074,8 +1122,8 @@ function adaptInbound(inbound, context) {
     protocol: protocolLongLabel(inbound.protocol),
     proxyNode: proxyNode?.name || inbound.proxyNodeId,
     listen: inbound.listen || "0.0.0.0",
+    displayHost: host,
     port: String(inbound.port),
-    directAccess: String(directCount),
     relayAccess: String(relayCount),
     users: String(context.usersRaw.length),
     flow: inbound.config?.flow || inbound.transport || "-",
@@ -1243,7 +1291,10 @@ const resourceFormConfigs = {
       { name: "name", label: "权限组名称", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量额度 GiB", type: "number", defaultValue: 500 },
       { name: "durationDays", label: "有效期天数", type: "number", defaultValue: 90 },
-      { name: "allowedAccessNodes", label: "可见节点（勾选）", type: "nodes", options: (data) => (data["access-nodes"] || []).map((node) => ({ label: `${node.name} · ${node.host}:${node.port}`, value: node.resourceId })), hint: "不勾选任何节点 = 该权限组可见全部节点" },
+      { name: "allowedAccessNodes", label: "可见节点（勾选）", type: "nodes", options: (data) => [
+        ...(data.inbounds || []).map((node) => ({ label: `${node.name} · ${node.displayHost || "-"}:${node.port}`, value: `inbound:${node.resourceId}` })),
+        ...(data["access-nodes"] || []).map((node) => ({ label: `${node.name} · ${node.displayHost || "-"}:${node.port}（中转）`, value: `access:${node.resourceId}` })),
+      ], hint: "不勾选任何节点 = 该权限组可见全部节点" },
       { name: "speedLimitMbps", label: "限速 Mbps", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用权限组", type: "checkbox", defaultValue: true },
     ],
@@ -1301,14 +1352,14 @@ const resourceFormConfigs = {
     }),
   },
   inbounds: {
-    label: "协议入站",
+    label: "节点",
     fields: [
-      { name: "name", label: "入站名称", type: "text", defaultValue: "" },
+      { name: "name", label: "节点名称", type: "text", defaultValue: "" },
       { name: "proxyNodeId", label: "代理服务器", type: "select", options: (data) => optionRows(data["proxy-nodes"]), defaultValue: (data) => selectDefault(data["proxy-nodes"]) },
       { name: "protocol", label: "协议", type: "select", defaultValue: "vless-reality", options: [{ label: "VLESS REALITY", value: "vless-reality" }, { label: "Hysteria2", value: "hysteria2" }, { label: "AnyTLS", value: "anytls" }] },
       { name: "port", label: "端口", type: "number", defaultValue: 443 },
       { name: "listen", label: "监听地址", type: "text", defaultValue: "0.0.0.0" },
-      { name: "createDirectAccessNode", label: "同步创建 Direct 访问节点", type: "checkbox", defaultValue: true },
+      { name: "entryHost", label: "直连地址（公网主机/域名，留空用代理服务器）", type: "text", defaultValue: "" },
       { name: "dest", label: "REALITY Dest", type: "text", defaultValue: "www.microsoft.com:443" },
       { name: "serverNames", label: "REALITY SNI（逗号分隔）", type: "text", defaultValue: "www.apple.com" },
       { name: "sni", label: "HY2 SNI", type: "text", defaultValue: "" },
@@ -1322,7 +1373,7 @@ const resourceFormConfigs = {
       protocol: item.raw?.protocol || "vless-reality",
       port: item.raw?.port || 443,
       listen: item.raw?.listen || "0.0.0.0",
-      createDirectAccessNode: false,
+      entryHost: item.raw?.entryHost || "",
       dest: item.raw?.config?.reality?.dest || "",
       serverNames: item.raw?.config?.reality?.serverNames?.join(", ") || "www.apple.com",
       sni: item.raw?.config?.tls?.sni || "",
@@ -1336,7 +1387,7 @@ const resourceFormConfigs = {
       protocol: values.protocol,
       port: toNumber(values.port, 443),
       listen: values.listen || "0.0.0.0",
-      createDirectAccessNode: Boolean(values.createDirectAccessNode),
+      entryHost: values.entryHost || null,
       config: (() => {
         if (values.protocol === "hysteria2") {
           return { sni: values.sni };
@@ -1441,6 +1492,83 @@ const resourceFormConfigs = {
       target: { host: values.targetHost || undefined, port: toNumber(values.targetPort, undefined) },
       transport: values.transport || "tcp",
       enabled: Boolean(values.enabled),
+    }),
+  },
+  "frontend-edges": {
+    label: "前端服务器",
+    fields: [
+      { name: "name", label: "名称", type: "text", defaultValue: "" },
+      { name: "publicHost", label: "公网主机/域名", type: "text", defaultValue: "" },
+      { name: "publicIp", label: "公网 IP", type: "text", defaultValue: "" },
+      { name: "region", label: "区域", type: "text", defaultValue: "" },
+      { name: "provider", label: "云厂商", type: "text", defaultValue: "" },
+      { name: "port", label: "端口", type: "number", defaultValue: 80 },
+      { name: "tlsEnabled", label: "已启用 HTTPS", type: "checkbox", defaultValue: false },
+      { name: "enabled", label: "启用", type: "checkbox", defaultValue: true },
+      { name: "notes", label: "备注", type: "text", defaultValue: "" },
+    ],
+    fromItem: (item) => ({
+      name: item.raw?.name || item.name || "",
+      publicHost: item.raw?.publicHost || "",
+      publicIp: item.raw?.publicIp || "",
+      region: item.raw?.region || "",
+      provider: item.raw?.provider || "",
+      port: item.raw?.port || 80,
+      tlsEnabled: item.raw?.tlsEnabled === true,
+      enabled: item.raw?.enabled !== false,
+      notes: item.raw?.notes || "",
+    }),
+    toApiInput: (values) => ({
+      name: values.name,
+      publicHost: values.publicHost,
+      publicIp: values.publicIp,
+      domain: values.publicHost,
+      region: values.region,
+      provider: values.provider,
+      port: toNumber(values.port, 80),
+      tlsEnabled: Boolean(values.tlsEnabled),
+      enabled: Boolean(values.enabled),
+      notes: values.notes,
+    }),
+  },
+  "subscription-edges": {
+    label: "订阅服务器",
+    fields: [
+      { name: "name", label: "名称", type: "text", defaultValue: "" },
+      { name: "publicHost", label: "公网主机/域名", type: "text", defaultValue: "" },
+      { name: "publicIp", label: "公网 IP", type: "text", defaultValue: "" },
+      { name: "region", label: "区域", type: "text", defaultValue: "" },
+      { name: "provider", label: "云厂商", type: "text", defaultValue: "" },
+      { name: "port", label: "端口", type: "number", defaultValue: 80 },
+      { name: "pathPrefix", label: "订阅路径前缀", type: "text", defaultValue: "go" },
+      { name: "tlsEnabled", label: "已启用 HTTPS", type: "checkbox", defaultValue: false },
+      { name: "enabled", label: "启用", type: "checkbox", defaultValue: true },
+      { name: "notes", label: "备注", type: "text", defaultValue: "" },
+    ],
+    fromItem: (item) => ({
+      name: item.raw?.name || item.name || "",
+      publicHost: item.raw?.publicHost || "",
+      publicIp: item.raw?.publicIp || "",
+      region: item.raw?.region || "",
+      provider: item.raw?.provider || "",
+      port: item.raw?.port || 80,
+      pathPrefix: item.raw?.pathPrefix || "go",
+      tlsEnabled: item.raw?.tlsEnabled === true,
+      enabled: item.raw?.enabled !== false,
+      notes: item.raw?.notes || "",
+    }),
+    toApiInput: (values) => ({
+      name: values.name,
+      publicHost: values.publicHost,
+      publicIp: values.publicIp,
+      domain: values.publicHost,
+      region: values.region,
+      provider: values.provider,
+      port: toNumber(values.port, 80),
+      pathPrefix: values.pathPrefix || "go",
+      tlsEnabled: Boolean(values.tlsEnabled),
+      enabled: Boolean(values.enabled),
+      notes: values.notes,
     }),
   },
 };
@@ -2302,12 +2430,12 @@ function AccessWorkspacePage(props) {
     <ResourceWorkspacePage
       {...props}
       title="访问节点"
-      subtitle="统一管理用户可见节点、协议入站、中转链路、节点排序和权限组可见性"
-      initialTab="access"
+      subtitle="节点即协议入站：添加节点后自动成为直连入口；中转入口需单独创建并自动生成转发规则"
+      initialTab="inbounds"
       tabs={[
-        { id: "access", label: "访问入口", icon: IconNetwork, sectionId: "access-nodes" },
-        { id: "inbounds", label: "协议入站", icon: IconRoute, sectionId: "inbounds" },
-        { id: "relay-rules", label: "中转链路", icon: IconGitBranch, sectionId: "relay-rules" },
+        { id: "inbounds", label: "节点", icon: IconNetwork, sectionId: "inbounds" },
+        { id: "access", label: "中转入口", icon: IconRoute, sectionId: "access-nodes" },
+        { id: "relay-rules", label: "转发规则", icon: IconGitBranch, sectionId: "relay-rules" },
       ]}
     />
   );
@@ -2480,6 +2608,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
   const [subscriptionSettings, setSubscriptionSettings] = useState({
     subscriptionBaseUrl: "",
     subscriptionPathPrefix: "go",
+    nodeBackendUrl: "",
     subscriptionTitle: "",
     defaultSubscriptionIntervalSeconds: 3600,
     subscriptionUserinfo: true,
@@ -2496,6 +2625,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
       setSubscriptionSettings({
         subscriptionBaseUrl: backendSettings.subscriptionBaseUrl || "",
         subscriptionPathPrefix: backendSettings.subscriptionPathPrefix || "go",
+        nodeBackendUrl: backendSettings.nodeBackendUrl || "",
         subscriptionTitle: backendSettings.subscriptionTitle || "",
         defaultSubscriptionIntervalSeconds: Number(backendSettings.defaultSubscriptionIntervalSeconds) || 3600,
         subscriptionUserinfo: backendSettings.subscriptionUserinfo !== false,
@@ -2655,6 +2785,7 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
           <section className="setting-panel">
             <h2>订阅默认策略</h2>
             <label><span>订阅入口地址</span><input placeholder="例如 https://katotool.com" value={subscriptionSettings.subscriptionBaseUrl} onChange={(event) => updateSubscriptionSetting("subscriptionBaseUrl", event.target.value)} /></label>
+            <label><span>节点安装后端地址</span><input placeholder="例如 http://45.192.205.73:8080；留空用当前面板地址" value={subscriptionSettings.nodeBackendUrl} onChange={(event) => updateSubscriptionSetting("nodeBackendUrl", event.target.value)} /></label>
             <label><span>订阅路径前缀</span><input placeholder="go" value={subscriptionSettings.subscriptionPathPrefix} onChange={(event) => updateSubscriptionSetting("subscriptionPathPrefix", event.target.value)} /></label>
             <label><span>订阅标题</span><input placeholder="留空使用系统名称" value={subscriptionSettings.subscriptionTitle} onChange={(event) => updateSubscriptionSetting("subscriptionTitle", event.target.value)} /></label>
             <label><span>更新间隔（秒）</span><input type="number" min="60" value={subscriptionSettings.defaultSubscriptionIntervalSeconds} onChange={(event) => updateSubscriptionSetting("defaultSubscriptionIntervalSeconds", Number(event.target.value))} /></label>
@@ -3502,7 +3633,7 @@ export function App() {
     };
     try {
       const result = await adminPost("/api/v1/bootstrap-tokens", body);
-      const baseUrl = getAdminApiSettings().baseUrl || window.location.origin;
+      const baseUrl = backendSettings?.nodeBackendUrl || getAdminApiSettings().baseUrl || window.location.origin;
       const command = roleInstallCommand({
         role,
         backendUrl: baseUrl,

@@ -286,7 +286,7 @@ const resourceConfigs = {
     relationRows: [
       ["可见节点", "nodes"], ["订阅服务", () => "-"], ["配置版本", "configVersion"],
     ],
-    metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["Hysteria2", "hy2Password"], ["AnyTLS", "anytlsPassword"]],
+    metricRows: [["应用时间", "appliedAt"], ["最近使用", "lastSeen"], ["AnyTLS", "anytlsPassword"]],
     subscriptionLink: true,
     preview: (row) => `user: ${row.id}\nplan: ${row.plan}\nprotocols: ${row.protocols}\nsubscription: ${row.subscription}\nnodes: ${row.nodes}\ntraffic: ${row.trafficUsed}`,
   },
@@ -305,7 +305,7 @@ const resourceConfigs = {
     filters: [
       { key: "status", label: "状态", options: ["全部", "启用", "停用"] },
     ],
-    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["可见节点", "visibleNodes"], ["HY2 速率", "hy2Speed"]],
+    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["可见节点", "visibleNodes"]],
     relationRows: [["访问节点", "accessNodes"], ["用户数量", "userCount"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `plan: ${row.id}\ntraffic_quota: ${row.trafficQuota}\nduration: ${row.duration}\nprotocols: ${row.protocols}\naccess_nodes: ${row.accessNodes}\nusers: ${row.userCount}`,
@@ -353,7 +353,7 @@ const resourceConfigs = {
     detailRows: [["公网地址", "host"], ["区域", "region"], ["Agent 版本", "agentVersion"], ["协议入站", "inbounds"], ["访问节点", "accessNodes"], ["最近心跳", "heartbeat"]],
     relationRows: [["配置版本", "configVersion"], ["绑定 Agent", (row) => `agent-${row.id}`], ["状态", "status"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
-    preview: (row) => `proxy_node: ${row.id}\nhost: ${row.host}\nregion: ${row.region}\nruntimes:\n  xray: enabled\n  hysteria2: enabled\nconfig_revision: ${row.configVersion}`,
+    preview: (row) => `proxy_node: ${row.id}\nhost: ${row.host}\nregion: ${row.region}\nruntime: sing-box (AnyTLS)\nconfig_revision: ${row.configVersion}`,
   },
   inbounds: {
     title: "节点",
@@ -365,7 +365,7 @@ const resourceConfigs = {
     secondaryAction: "批量启用",
     searchPlaceholder: "搜索节点名称、协议或代理服务器...",
     searchKeys: ["id", "name", "protocol", "proxyNode"],
-    segments: [{ label: "All", value: "All" }, { label: "VLESS", value: "VLESS REALITY" }, { label: "HY2", value: "Hysteria2" }],
+    segments: [{ label: "All", value: "All" }, { label: "AnyTLS", value: "AnyTLS" }],
     segmentKey: "protocol",
     filters: [
       { key: "proxyNode", label: "代理服务器", options: ["全部"] },
@@ -589,7 +589,7 @@ const resourceConfigs = {
     segmentKey: "dimension",
     filters: [
       { key: "status", label: "状态", options: ["全部", "正常"] },
-      { key: "inbound", label: "入站", options: ["全部", "all", "VLESS, HY2", "TCP, UDP"] },
+      { key: "inbound", label: "入站", options: ["全部", "all", "AnyTLS"] },
       { key: "peak", label: "峰值", options: ["全部", "213 Mbps", "118 Mbps", "94 Mbps"] },
     ],
     detailRows: [["维度", "dimension"], ["入站", "inbound"], ["上传", "upload"], ["下载", "download"], ["峰值", "peak"], ["更新时间", "updatedAt"]],
@@ -836,15 +836,13 @@ function isoText(value, fallback = "-") {
 }
 
 function protocolLabel(protocol) {
-  if (protocol === "vless-reality") return "VLESS";
-  if (protocol === "hysteria2") return "HY2";
+  if (protocol === "anytls") return "AnyTLS";
   if (protocol === "realm") return "Realm";
   return protocol || "-";
 }
 
 function protocolLongLabel(protocol) {
-  if (protocol === "vless-reality") return "VLESS REALITY";
-  if (protocol === "hysteria2") return "Hysteria2";
+  if (protocol === "anytls") return "AnyTLS";
   return protocolLabel(protocol);
 }
 
@@ -1047,7 +1045,6 @@ function adaptPlan(plan, context) {
     visibleNodes: plan.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
     accessNodes: `${context.accessRaw.length} 个`,
     userCount: String(userCount),
-    hy2Speed: `${plan.hysteria2?.upMbps || 0} / ${plan.hysteria2?.downMbps || 0} Mbps`,
     configVersion: `v${context.summary?.version || 1}`,
     createdAt: isoText(plan.createdAt),
     appliedAt: isoText(plan.updatedAt || plan.createdAt),
@@ -1073,8 +1070,6 @@ function adaptUser(user, context) {
     subscription: user.enabled === false ? "禁用" : "启用",
     lastSeen: user.lastProxyUseAt ? isoText(user.lastProxyUseAt) : "未使用",
     configVersion: `v${context.summary?.version || 1}`,
-    uuid: user.credentials?.vlessUuid || "-",
-    hy2Password: user.credentials?.hysteria2Password || "-",
     anytlsPassword: user.credentials?.anytlsPassword || "-",
     subscriptionToken: user.subscriptionToken || "",
     nodes: `${context.accessRaw.length} 个访问节点`,
@@ -1113,9 +1108,7 @@ function adaptInbound(inbound, context) {
     id: inbound.name || inbound.id,
     resourceId: inbound.id,
     raw: inbound,
-    summary: inbound.protocol === "vless-reality"
-      ? `REALITY · ${inbound.config?.reality?.dest || "auto dest"}`
-      : `HY2 · ${inbound.config?.tls?.sni || proxyNode?.publicHost || "auto sni"}`,
+    summary: `AnyTLS · ${inbound.config?.tls?.sni || proxyNode?.publicHost || "auto sni"}`,
     group: protocolLongLabel(inbound.protocol),
     name: inbound.name || inbound.id,
     status: enabledLabel(inbound),
@@ -1325,7 +1318,7 @@ const resourceFormConfigs = {
       { name: "entryDomain", label: "入口域名", type: "text", defaultValue: "" },
       { name: "region", label: "区域", type: "text", defaultValue: "" },
       { name: "provider", label: "云厂商", type: "text", defaultValue: "" },
-      { name: "capabilities", label: "运行时能力", type: "text", defaultValue: "xray,hysteria2" },
+      { name: "capabilities", label: "运行时能力", type: "text", defaultValue: "sing-box" },
       { name: "enabled", label: "启用节点", type: "checkbox", defaultValue: true },
     ],
     fromItem: (item) => ({
@@ -1356,13 +1349,10 @@ const resourceFormConfigs = {
     fields: [
       { name: "name", label: "节点名称", type: "text", defaultValue: "" },
       { name: "proxyNodeId", label: "代理服务器", type: "select", options: (data) => optionRows(data["proxy-nodes"]), defaultValue: (data) => selectDefault(data["proxy-nodes"]) },
-      { name: "protocol", label: "协议", type: "select", defaultValue: "vless-reality", options: [{ label: "VLESS REALITY", value: "vless-reality" }, { label: "Hysteria2", value: "hysteria2" }, { label: "AnyTLS", value: "anytls" }] },
+      { name: "protocol", label: "协议", type: "select", defaultValue: "anytls", options: [{ label: "AnyTLS", value: "anytls" }] },
       { name: "port", label: "端口", type: "number", defaultValue: 443 },
       { name: "listen", label: "监听地址", type: "text", defaultValue: "0.0.0.0" },
       { name: "entryHost", label: "直连地址（公网主机/域名，留空用代理服务器）", type: "text", defaultValue: "" },
-      { name: "dest", label: "REALITY Dest", type: "text", defaultValue: "www.microsoft.com:443" },
-      { name: "serverNames", label: "REALITY SNI（逗号分隔）", type: "text", defaultValue: "www.apple.com" },
-      { name: "sni", label: "HY2 SNI", type: "text", defaultValue: "" },
       { name: "anytlsSni", label: "AnyTLS SNI", type: "text", defaultValue: "" },
       { name: "certPath", label: "AnyTLS 证书路径", type: "text", defaultValue: "" },
       { name: "keyPath", label: "AnyTLS 私钥路径", type: "text", defaultValue: "" },
@@ -1372,13 +1362,10 @@ const resourceFormConfigs = {
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
       proxyNodeId: item.raw?.proxyNodeId || "",
-      protocol: item.raw?.protocol || "vless-reality",
+      protocol: item.raw?.protocol || "anytls",
       port: item.raw?.port || 443,
       listen: item.raw?.listen || "0.0.0.0",
       entryHost: item.raw?.entryHost || "",
-      dest: item.raw?.config?.reality?.dest || "",
-      serverNames: item.raw?.config?.reality?.serverNames?.join(", ") || "www.apple.com",
-      sni: item.raw?.config?.tls?.sni || "",
       anytlsSni: item.raw?.config?.tls?.sni || "",
       certPath: item.raw?.config?.tls?.certPath || "",
       keyPath: item.raw?.config?.tls?.keyPath || "",
@@ -1392,20 +1379,8 @@ const resourceFormConfigs = {
       listen: values.listen || "0.0.0.0",
       entryHost: values.entryHost || null,
       config: (() => {
-        if (values.protocol === "hysteria2") {
-          return { sni: values.sni };
-        }
-        if (values.protocol === "anytls") {
-          return { tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath, insecure: Boolean(values.anytlsInsecure) } };
-        }
-        const existingReality = item?.raw?.config?.reality || {};
-        const names = splitList(values.serverNames);
         return {
-          reality: {
-            ...existingReality,
-            dest: values.dest,
-            serverNames: names.length ? names : existingReality.serverNames || ["www.apple.com"]
-          }
+          tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath, insecure: Boolean(values.anytlsInsecure) }
         };
       })(),
     }),
@@ -1603,12 +1578,11 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       plan: plan?.name || "未绑定",
       expiresAt: values.expiresAt || "不限",
       trafficUsed: `0 B / ${formatBytes(raw.trafficLimitBytes)}`,
-      protocols: protocolListLabel(splitList(values.protocols), "继承权限组"),
+      protocols: "AnyTLS",
       subscription: values.enabled ? "启用" : "禁用",
       lastSeen: "未使用",
       configVersion: version,
-      uuid: item?.uuid || "创建后生成",
-      hy2Password: item?.hy2Password || "创建后生成",
+      anytlsPassword: item?.anytlsPassword || "创建后生成",
       nodes: `${resourceData["access-nodes"].length} 个访问节点`,
       createdAt: isoText(raw.createdAt),
       appliedAt: isoText(raw.updatedAt),
@@ -1627,11 +1601,9 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       status: values.enabled ? "启用" : "停用",
       trafficQuota: formatBytes(raw.trafficLimitBytes),
       duration: values.durationDays ? `${values.durationDays} 天` : "不限",
-      protocols: protocolListLabel(splitList(values.allowedProtocols), "继承默认"),
+      protocols: "AnyTLS",
       accessNodes: `${resourceData["access-nodes"].length} 个`,
       userCount: item?.userCount || "0",
-      udp: values.allowUdp ? "是" : "否",
-      hy2Speed: item?.hy2Speed || "100 / 100 Mbps",
       configVersion: version,
       createdAt: isoText(raw.createdAt),
       appliedAt: isoText(raw.updatedAt),
@@ -1667,7 +1639,7 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       id: values.name || rowId,
       resourceId: rawId,
       raw,
-      summary: values.protocol === "hysteria2" ? `HY2 · ${values.sni || "auto sni"}` : `REALITY · ${values.dest || "auto dest"}`,
+      summary: `AnyTLS · ${values.anytlsSni || "auto sni"}`,
       group: protocolLongLabel(values.protocol),
       name: values.name,
       status: "运行中",
@@ -1675,10 +1647,8 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       proxyNode: proxy?.name || values.proxyNodeId,
       listen: values.listen || "0.0.0.0",
       port: String(values.port || 443),
-      directAccess: values.createDirectAccessNode ? "1" : "0",
       relayAccess: item?.relayAccess || "0",
       users: String(resourceData.users.length),
-      flow: values.protocol === "hysteria2" ? "udp native" : "xtls-rprx-vision",
       configVersion: version,
       createdAt: isoText(raw.createdAt),
       appliedAt: isoText(raw.updatedAt),
@@ -2894,7 +2864,7 @@ const requiredFormFields = {
   "relay-rules": ["name", "relayId", "inboundId", "entryPort", "transport"],
 };
 
-const supportedFormProtocols = new Set(["vless-reality", "hysteria2", "anytls"]);
+const supportedFormProtocols = new Set(["anytls"]);
 const supportedFormTransports = new Set(["tcp", "udp"]);
 
 function validateResourceForm(sectionId, values, resourceData, item) {

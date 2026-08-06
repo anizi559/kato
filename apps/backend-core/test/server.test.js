@@ -179,13 +179,13 @@ test("admin resources compile proxy and relay desired states", async () => {
       name: "Starter",
       trafficLimitBytes: 1000,
       durationDays: 30,
-      allowedProtocols: [PROTOCOLS.VLESS_REALITY]
+      allowedProtocols: [PROTOCOLS.ANYTLS]
     });
     const user = await adminPost(app, "users", {
       name: "alice",
       planId: plan.id
     });
-    assert.match(user.credentials.vlessUuid, /^[0-9a-f-]+$/);
+    assert.match(user.credentials.anytlsPassword, /^anytls_/);
 
     const proxyNode = await adminPost(app, "proxy-nodes", {
       name: "hk-landing-01",
@@ -197,20 +197,18 @@ test("admin resources compile proxy and relay desired states", async () => {
     });
     const inbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: proxyNode.id,
-      name: "HK VLESS",
-      protocol: PROTOCOLS.VLESS_REALITY,
-      port: 443,
+      name: "HK AnyTLS",
+      protocol: PROTOCOLS.ANYTLS,
+      port: 2053,
       config: {
-        reality: {
-          publicKey: "reality-public",
-          privateKey: "reality-private",
-          shortIds: ["abcd1234"],
-          serverNames: ["www.apple.com"],
-          dest: "www.apple.com:443"
+        tls: {
+          sni: "hk.example.com",
+          certPath: "/var/lib/kato/certs/anytls/hk.example.com/fullchain.pem",
+          keyPath: "/var/lib/kato/certs/anytls/hk.example.com/privkey.pem"
         }
       }
     });
-    assert.equal(inbound.protocol, PROTOCOLS.VLESS_REALITY);
+    assert.equal(inbound.protocol, PROTOCOLS.ANYTLS);
 
     const directAccessNodes = await adminList(app, "access-nodes");
     assert.equal(directAccessNodes.length, 0);
@@ -231,7 +229,7 @@ test("admin resources compile proxy and relay desired states", async () => {
     assert.equal(relayBundle.accessNode.type, "relay");
     assert.equal(relayBundle.relayRule.entry.port, 8443);
     assert.equal(relayBundle.relayRule.target.host, "10.10.0.2");
-    assert.equal(relayBundle.relayRule.target.port, 443);
+    assert.equal(relayBundle.relayRule.target.port, 2053);
 
     const proxyAgent = await registerResourceAgent(app, "proxy-node", proxyNode.id, proxyNode.name);
     const relayAgent = await registerResourceAgent(app, "transit-relay", relay.id, relay.name);
@@ -240,7 +238,7 @@ test("admin resources compile proxy and relay desired states", async () => {
     assert.equal(proxyDesired.desiredState.proxyNode.id, proxyNode.id);
     assert.equal(proxyDesired.desiredState.inbounds.length, 1);
     assert.equal(proxyDesired.desiredState.inbounds[0].users.length, 1);
-    assert.equal(proxyDesired.desiredState.inbounds[0].users[0].credential.uuid, user.credentials.vlessUuid);
+    assert.equal(proxyDesired.desiredState.inbounds[0].users[0].credential.password, user.credentials.anytlsPassword);
     assert.equal(proxyDesired.desiredState.accessNodes.length, 1);
 
     const relayDesired = await getDesiredState(app, relayAgent);
@@ -268,7 +266,7 @@ test("admin api validates duplicate names and invalid relay inputs", async () =>
   try {
     await adminPost(app, "plans", {
       name: "Starter",
-      allowedProtocols: [PROTOCOLS.VLESS_REALITY]
+      allowedProtocols: [PROTOCOLS.ANYTLS]
     });
 
     const duplicate = await requestJson(app, "/api/v1/admin/plans", {
@@ -291,7 +289,7 @@ test("admin api validates duplicate names and invalid relay inputs", async () =>
       body: {
         proxyNodeId: proxyNode.id,
         name: "Invalid Transport",
-        protocol: PROTOCOLS.VLESS_REALITY,
+        protocol: PROTOCOLS.ANYTLS,
         transport: "quic",
         port: 443
       }
@@ -305,7 +303,7 @@ test("admin api validates duplicate names and invalid relay inputs", async () =>
       body: {
         proxyNodeId: proxyNode.id,
         name: "Invalid Port",
-        protocol: PROTOCOLS.VLESS_REALITY,
+        protocol: PROTOCOLS.ANYTLS,
         port: 70000
       }
     });
@@ -321,7 +319,7 @@ test("admin crud lifecycle keeps relay access and relay rules in sync", async ()
   try {
     const plan = await adminPost(app, "plans", {
       name: "Lifecycle Plan",
-      allowedProtocols: [PROTOCOLS.VLESS_REALITY, PROTOCOLS.HYSTERIA2]
+      allowedProtocols: [PROTOCOLS.ANYTLS]
     });
     const user = await adminPost(app, "users", {
       name: "lifecycle-user",
@@ -341,9 +339,9 @@ test("admin crud lifecycle keeps relay access and relay rules in sync", async ()
     });
     const inbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: proxyNode.id,
-      name: "HK Lifecycle VLESS",
-      protocol: PROTOCOLS.VLESS_REALITY,
-      port: 443
+      name: "HK Lifecycle AnyTLS",
+      protocol: PROTOCOLS.ANYTLS,
+      port: 2053
     });
     const relay = await adminPost(app, "transit-relays", {
       name: "relay-lifecycle-01",
@@ -373,75 +371,6 @@ test("admin crud lifecycle keeps relay access and relay rules in sync", async ()
     const accessNodes = await adminList(app, "access-nodes");
     assert.equal(inbounds.some((item) => item.proxyNodeId === proxyNode.id), false);
     assert.equal(accessNodes.some((item) => item.proxyNodeId === proxyNode.id), false);
-  } finally {
-    await app.close();
-  }
-});
-
-test("hysteria2 inbound compiles independent user password", async () => {
-  const app = await startTestServer();
-  try {
-    const plan = await adminPost(app, "plans", {
-      name: "UDP Plan",
-      allowedProtocols: [PROTOCOLS.HYSTERIA2],
-      allowUdp: true
-    });
-    const user = await adminPost(app, "users", {
-      name: "bob",
-      planId: plan.id
-    });
-    const proxyNode = await adminPost(app, "proxy-nodes", {
-      name: "jp-landing-01",
-      publicHost: "jp.example.com",
-      entryDomain: "jp.example.com"
-    });
-    const inbound = await adminPost(app, "node-inbounds", {
-      proxyNodeId: proxyNode.id,
-      name: "JP Hysteria2",
-      protocol: PROTOCOLS.HYSTERIA2,
-      port: 8443,
-      config: {
-        sni: "jp.example.com",
-        obfsPassword: "obfs-secret",
-        upMbps: 50,
-        downMbps: 120
-      }
-    });
-    assert.equal(inbound.transport, "udp");
-
-    const agent = await registerResourceAgent(app, "proxy-node", proxyNode.id, proxyNode.name);
-    const desired = await getDesiredState(app, agent);
-    assert.equal(desired.desiredState.inbounds.length, 1);
-    assert.equal(desired.desiredState.inbounds[0].protocol, PROTOCOLS.HYSTERIA2);
-    assert.equal(desired.desiredState.inbounds[0].config.obfs.password, "obfs-secret");
-    assert.equal(desired.desiredState.inbounds[0].users.length, 1);
-    assert.equal(
-      desired.desiredState.inbounds[0].users[0].credential.password,
-      user.credentials.hysteria2Password
-    );
-    assert.notEqual(user.credentials.hysteria2Password, user.credentials.vlessUuid);
-  } finally {
-    await app.close();
-  }
-});
-
-test("vless reality inbound creates valid-looking x25519 keys by default", async () => {
-  const app = await startTestServer();
-  try {
-    const proxyNode = await adminPost(app, "proxy-nodes", {
-      name: "us-landing-01",
-      publicHost: "us.example.com"
-    });
-    const inbound = await adminPost(app, "node-inbounds", {
-      proxyNodeId: proxyNode.id,
-      name: "US VLESS",
-      protocol: PROTOCOLS.VLESS_REALITY,
-      port: 443
-    });
-
-    assert.match(inbound.config.reality.privateKey, /^[A-Za-z0-9_-]{43}$/);
-    assert.match(inbound.config.reality.publicKey, /^[A-Za-z0-9_-]{43}$/);
-    assert.notEqual(inbound.config.reality.privateKey, inbound.config.reality.publicKey);
   } finally {
     await app.close();
   }

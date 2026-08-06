@@ -1,4 +1,4 @@
-export const VERSION = "0.9.3";
+export const VERSION = "0.10.0";
 
 export const AGENT_ROLES = Object.freeze([
   "frontend-edge",
@@ -8,8 +8,6 @@ export const AGENT_ROLES = Object.freeze([
 ]);
 
 export const PROTOCOLS = Object.freeze({
-  VLESS_REALITY: "vless-reality",
-  HYSTERIA2: "hysteria2",
   ANYTLS: "anytls",
   REALM: "realm"
 });

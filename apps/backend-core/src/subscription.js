@@ -128,7 +128,6 @@ function isInboundUsable(inbound, state) {
 }
 
 function buildSubscriptionNodes(user, plan, entries, state) {
-  const planHy2 = plan?.hysteria2 || {};
   return entries.map((entry) => {
     const { inbound, proxyNode, relay } = entry;
     const base = {
@@ -138,91 +137,23 @@ function buildSubscriptionNodes(user, plan, entries, state) {
       transport: entry.transport || "tcp",
       protocol: entry.protocol
     };
-
-    if (entry.protocol === PROTOCOLS.VLESS_REALITY) {
-      const reality = inbound?.config?.reality || {};
-      return {
-        ...base,
-        uuid: user.credentials.vlessUuid,
-        flow: user.credentials.vlessFlow || inbound?.config?.flow || "xtls-rprx-vision",
-        sni: first(reality.serverNames, "www.microsoft.com"),
-        publicKey: reality.publicKey || "",
-        shortId: first(reality.shortIds, ""),
-        spiderX: reality.spiderX || "/",
-        fingerprint: "chrome"
-      };
-    }
-
-    if (entry.protocol === PROTOCOLS.HYSTERIA2) {
-      const tls = inbound?.config?.tls || {};
-      const obfs = inbound?.config?.obfs || {};
-      const bandwidth = inbound?.config?.bandwidth || {};
-      return {
-        ...base,
-        password: user.credentials.hysteria2Password,
-        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || entry.host,
-        obfsEnabled: obfs.enabled !== false,
-        obfsType: obfs.type || "salamander",
-        obfsPassword: obfs.password || "",
-        upMbps: planHy2.upMbps ?? bandwidth.upMbps ?? 100,
-        downMbps: planHy2.downMbps ?? bandwidth.downMbps ?? 100,
-        insecure: false
-      };
-    }
-
-    if (entry.protocol === PROTOCOLS.ANYTLS) {
-      const tls = inbound?.config?.tls || {};
-      return {
-        ...base,
-        password: user.credentials.anytlsPassword,
-        sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || entry.host,
-        insecure: tls.insecure === true
-      };
-    }
-
-    return { ...base, raw: { entry, inbound, proxyNode, relay } };
+    const tls = inbound?.config?.tls || {};
+    return {
+      ...base,
+      password: user.credentials.anytlsPassword,
+      sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || entry.host,
+      insecure: tls.insecure === true,
+      raw: { entry, inbound, proxyNode, relay }
+    };
   });
 }
 
 export function buildUri(node) {
-  if (node.protocol === PROTOCOLS.VLESS_REALITY) {
-    const params = [
-      "encryption=none",
-      `flow=${encodeURIComponent(node.flow)}`,
-      "security=reality",
-      `sni=${encodeURIComponent(node.sni)}`,
-      `fp=${encodeURIComponent(node.fingerprint)}`,
-      `pbk=${encodeURIComponent(node.publicKey)}`,
-      `sid=${encodeURIComponent(node.shortId)}`,
-      `spx=${encodeURIComponent(node.spiderX)}`,
-      "type=tcp"
-    ];
-    return `vless://${node.uuid}@${node.host}:${node.port}?${params.join("&")}#${encodeURIComponent(node.name)}`;
-  }
-
-  if (node.protocol === PROTOCOLS.HYSTERIA2) {
-    const params = [
-      `sni=${encodeURIComponent(node.sni)}`,
-      `insecure=${node.insecure ? "1" : "0"}`
-    ];
-    if (node.obfsEnabled) {
-      params.push(`obfs=${encodeURIComponent(node.obfsType)}`);
-      params.push(`obfs-password=${encodeURIComponent(node.obfsPassword)}`);
-    }
-    params.push(`up=${node.upMbps}`);
-    params.push(`down=${node.downMbps}`);
-    return `hysteria2://${encodeURIComponent(node.password)}@${node.host}:${node.port}?${params.join("&")}#${encodeURIComponent(node.name)}`;
-  }
-
-  if (node.protocol === PROTOCOLS.ANYTLS) {
-    const params = [
-      `sni=${encodeURIComponent(node.sni)}`,
-      `insecure=${node.insecure ? "1" : "0"}`
-    ];
-    return `anytls://${encodeURIComponent(node.password)}@${node.host}:${node.port}?${params.join("&")}#${encodeURIComponent(node.name)}`;
-  }
-
-  throw httpError(`Unsupported subscription protocol: ${node.protocol}`, 400);
+  const params = [
+    `sni=${encodeURIComponent(node.sni)}`,
+    `insecure=${node.insecure ? "1" : "0"}`
+  ];
+  return `anytls://${encodeURIComponent(node.password)}@${node.host}:${node.port}?${params.join("&")}#${encodeURIComponent(node.name)}`;
 }
 
 export function buildUris(nodes) {
@@ -235,129 +166,33 @@ export function buildSingboxPayload(nodes) {
       level: "warn"
     },
     outbounds: nodes.map((node) => {
-      if (node.protocol === PROTOCOLS.VLESS_REALITY) {
-        return {
-          type: "vless",
-          tag: node.name,
-          server: node.host,
-          server_port: node.port,
-          uuid: node.uuid,
-          flow: node.flow,
-          packet_encoding: "xudp",
-          tls: {
-            enabled: true,
-            server_name: node.sni,
-            utls: {
-              enabled: true,
-              fingerprint: node.fingerprint
-            },
-            reality: {
-              enabled: true,
-              public_key: node.publicKey,
-              short_id: node.shortId
-            }
-          }
-        };
-      }
-
-      if (node.protocol === PROTOCOLS.HYSTERIA2) {
-        return {
-          type: "hysteria2",
-          tag: node.name,
-          server: node.host,
-          server_port: node.port,
-          up_mbps: node.upMbps,
-          down_mbps: node.downMbps,
-          password: node.password,
-          obfs: node.obfsEnabled
-            ? {
-                type: node.obfsType,
-                password: node.obfsPassword
-              }
-            : null,
-          tls: {
-            enabled: true,
-            server_name: node.sni,
-            insecure: node.insecure
-          }
-        };
-      }
-
-      if (node.protocol === PROTOCOLS.ANYTLS) {
-        return {
-          type: "anytls",
-          tag: node.name,
-          server: node.host,
-          server_port: node.port,
-          password: node.password,
-          tls: {
-            enabled: true,
-            server_name: node.sni,
-            insecure: node.insecure
-          }
-        };
-      }
-
-      throw httpError(`Unsupported subscription protocol: ${node.protocol}`, 400);
+      return {
+        type: "anytls",
+        tag: node.name,
+        server: node.host,
+        server_port: node.port,
+        password: node.password,
+        tls: {
+          enabled: true,
+          server_name: node.sni,
+          insecure: node.insecure
+        }
+      };
     })
   };
 }
 
 export function buildClashPayload(nodes) {
   const proxies = nodes.map((node) => {
-    if (node.protocol === PROTOCOLS.VLESS_REALITY) {
-      return {
-        name: node.name,
-        type: "vless",
-        server: node.host,
-        port: node.port,
-        uuid: node.uuid,
-        network: "tcp",
-        tls: true,
-        udp: true,
-        flow: node.flow,
-        servername: node.sni,
-        "client-fingerprint": node.fingerprint,
-        "reality-opts": {
-          "public-key": node.publicKey,
-          "short-id": node.shortId
-        }
-      };
-    }
-
-    if (node.protocol === PROTOCOLS.HYSTERIA2) {
-      return {
-        name: node.name,
-        type: "hysteria2",
-        server: node.host,
-        port: node.port,
-        password: node.password,
-        up: node.upMbps,
-        down: node.downMbps,
-        sni: node.sni,
-        "skip-cert-verify": node.insecure,
-        ...(node.obfsEnabled
-          ? {
-              obfs: node.obfsType,
-              "obfs-password": node.obfsPassword
-            }
-          : {})
-      };
-    }
-
-    if (node.protocol === PROTOCOLS.ANYTLS) {
-      return {
-        name: node.name,
-        type: "anytls",
-        server: node.host,
-        port: node.port,
-        password: node.password,
-        sni: node.sni,
-        "skip-cert-verify": node.insecure
-      };
-    }
-
-    throw httpError(`Unsupported subscription protocol: ${node.protocol}`, 400);
+    return {
+      name: node.name,
+      type: "anytls",
+      server: node.host,
+      port: node.port,
+      password: node.password,
+      sni: node.sni,
+      "skip-cert-verify": node.insecure
+    };
   });
 
   return `${renderYaml({
@@ -493,10 +328,6 @@ function nonEmpty(userValue, planValue) {
 
 function intersects(left, right) {
   return left.some((item) => right.includes(item));
-}
-
-function first(values, fallback) {
-  return Array.isArray(values) && values.length ? values[0] : fallback;
 }
 
 function httpError(message, statusCode = 400) {

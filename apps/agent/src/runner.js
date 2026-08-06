@@ -3,7 +3,6 @@ import { BackendClient } from "./client.js";
 import { readJsonFile, writeJsonFile } from "./config.js";
 import { applyRuntimeConfig } from "./runtime-apply.js";
 import { inspectRuntime, restartManagedRuntime, startManagedRuntime } from "./runtime-process.js";
-import { collectTrafficStats } from "./traffic-stats.js";
 
 export async function runOnce(config) {
   const state = (await readJsonFile(config.statePath, {})) || {};
@@ -16,11 +15,6 @@ export async function runOnce(config) {
 
   const actualState = await buildActualState(config, state);
   await safeCall(() => client.heartbeat(actualState), "heartbeat");
-
-  const traffic = await safeCall(() => collectTrafficStats(config), "traffic-stats");
-  if (traffic?.ok && traffic.reports?.length) {
-    await safeCall(() => client.reportTraffic(traffic.reports), "traffic-report");
-  }
 
   const desiredResult = await client.desiredState(state.etag);
   if (desiredResult.notModified) {

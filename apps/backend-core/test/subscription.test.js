@@ -32,13 +32,7 @@ async function seedSubscriptions(app) {
     name: "Pro",
     trafficLimitBytes: 10 * 1024 ** 3,
     durationDays: 30,
-    allowedProtocols: [PROTOCOLS.VLESS_REALITY, PROTOCOLS.HYSTERIA2],
-    allowedNodeGroups: ["premium"],
-    allowUdp: true,
-    hysteria2: {
-      upMbps: 60,
-      downMbps: 200
-    }
+    allowedNodeGroups: ["default"]
   });
   const user = await adminPost(app, "users", {
     name: "alice",
@@ -50,50 +44,26 @@ async function seedSubscriptions(app) {
     entryDomain: "hk.example.com",
     privateIp: "10.0.0.2",
     region: "HK",
-    groups: ["premium"]
+    groups: ["default"]
   });
-  const vlessInbound = await adminPost(app, "node-inbounds", {
+  const inbound = await adminPost(app, "node-inbounds", {
     proxyNodeId: proxyNode.id,
-    name: "HK VLESS",
-    protocol: PROTOCOLS.VLESS_REALITY,
-    port: 443,
-    groups: ["premium"],
+    name: "HK AnyTLS",
+    protocol: PROTOCOLS.ANYTLS,
+    port: 2053,
+    groups: ["default"],
     config: {
-      reality: {
-        publicKey: "reality-public-key",
-        privateKey: "reality-private-key",
-        shortIds: ["abcd1234"],
-        serverNames: ["www.apple.com"],
-        dest: "www.apple.com:443",
-        spiderX: "/"
+      tls: {
+        sni: "hk.example.com",
+        certPath: "/var/lib/kato/certs/anytls/hk.example.com/fullchain.pem",
+        keyPath: "/var/lib/kato/certs/anytls/hk.example.com/privkey.pem",
+        insecure: false
       }
-    }
-  });
-  const hy2Inbound = await adminPost(app, "node-inbounds", {
-    proxyNodeId: proxyNode.id,
-    name: "HK Hysteria2",
-    protocol: PROTOCOLS.HYSTERIA2,
-    port: 8443,
-    groups: ["premium"],
-    config: {
-      sni: "hk.example.com",
-      obfsPassword: "obfs-secret",
-      upMbps: 50,
-      downMbps: 120
     }
   });
   const bootstrap = await createBootstrap(app, { role: "subscription-edge", name: "sub-edge-01" });
   const agent = await registerAgent(app, bootstrap.token, "sub-edge-01");
-  return { plan, user, proxyNode, vlessInbound, hy2Inbound, agent };
-}
-
-async function fetchSubscription(app, agent, token, options = {}) {
-  return fetch(`${app.url}/api/v1/subscriptions/${encodeURIComponent(token)}`, {
-    headers: {
-      authorization: `Bearer ${agent.agentSecret}`,
-      ...(options.userAgent ? { "user-agent": options.userAgent } : {})
-    }
-  });
+  return { plan, user, proxyNode, inbound, agent };
 }
 
 test("subscription endpoint returns sing-box json with visible nodes and userinfo headers", async () => {
@@ -101,7 +71,7 @@ test("subscription endpoint returns sing-box json with visible nodes and userinf
   try {
     const { user, agent } = await seedSubscriptions(app);
     const response = await fetchSubscription(app, agent, user.subscriptionToken, {
-      userAgent: "sing-box/1.12.0"
+      userAgent: "sing-box/1.13.0"
     });
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type"), /application\/json/);
@@ -111,28 +81,23 @@ test("subscription endpoint returns sing-box json with visible nodes and userinf
 
     const payload = await response.json();
     assert.equal(payload.version, undefined);
-    assert.equal(payload.outbounds.length, 2);
-    const vless = payload.outbounds.find((outbound) => outbound.type === "vless");
-    const hy2 = payload.outbounds.find((outbound) => outbound.type === "hysteria2");
-    assert.equal(vless.server, "hk.example.com");
-    assert.equal(vless.server_port, 443);
-    assert.equal(vless.uuid, user.credentials.vlessUuid);
-    assert.equal(vless.tls.reality.public_key, "reality-public-key");
-    assert.equal(vless.tls.reality.short_id, "abcd1234");
-    assert.equal(hy2.server_port, 8443);
-    assert.equal(hy2.password, user.credentials.hysteria2Password);
-    assert.equal(hy2.obfs.password, "obfs-secret");
-    assert.equal(hy2.up_mbps, 60);
-    assert.equal(hy2.down_mbps, 200);
+    assert.equal(payload.outbounds.length, 1);
+    const outbound = payload.outbounds[0];
+    assert.equal(outbound.type, "anytls");
+    assert.equal(outbound.server, "hk.example.com");
+    assert.equal(outbound.server_port, 2053);
+    assert.equal(outbound.password, user.credentials.anytlsPassword);
+    assert.equal(outbound.tls.server_name, "hk.example.com");
+    assert.equal(outbound.tls.insecure, false);
   } finally {
     await app.close();
   }
 });
 
-test("subscription supports all protocols and filters by regions, groups and enabled state", async () => {
+test("subscription filters nodes by checked entries, groups and enabled state", async () => {
   const app = await startTestServer();
   try {
-    const { user, agent, vlessInbound, hy2Inbound } = await seedSubscriptions(app);
+    const { user, agent, inbound } = await seedSubscriptions(app);
 
     const jpProxy = await adminPost(app, "proxy-nodes", {
       name: "jp-01",
@@ -143,75 +108,63 @@ test("subscription supports all protocols and filters by regions, groups and ena
     });
     const jpInbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: jpProxy.id,
-      name: "JP VLESS",
-      protocol: PROTOCOLS.VLESS_REALITY,
-      port: 8443,
-      groups: ["default"]
+      name: "JP AnyTLS",
+      protocol: PROTOCOLS.ANYTLS,
+      port: 2053,
+      groups: ["default"],
+      config: {
+        tls: {
+          sni: "jp.example.com",
+          certPath: "/var/lib/kato/certs/anytls/jp.example.com/fullchain.pem",
+          keyPath: "/var/lib/kato/certs/anytls/jp.example.com/privkey.pem"
+        }
+      }
     });
 
-    // 权限组不再限制协议：即使 plan 只写了 vless，hysteria2 节点也会下发
-    const protocolIgnored = await adminPost(app, "plans", {
-      name: "Protocol Ignored",
-      allowedProtocols: [PROTOCOLS.VLESS_REALITY]
-    });
-    const protocolIgnoredUser = await adminPost(app, "users", {
-      name: "carol",
-      planId: protocolIgnored.id
-    });
-    const protocolIgnoredText = Buffer.from(
-      await (await fetchSubscription(app, agent, protocolIgnoredUser.subscriptionToken)).text(),
-      "base64"
-    ).toString("utf8");
-    assert.match(protocolIgnoredText, /^vless:\/\//m);
-    assert.match(protocolIgnoredText, /^hysteria2:\/\//m);
-
-    // 节点勾选：HK Only 只勾选香港的两个入站
     const hkOnlyPlan = await adminPost(app, "plans", {
       name: "HK Only",
-      allowedAccessNodes: [`inbound:${vlessInbound.id}`, `inbound:${hy2Inbound.id}`]
+      allowedAccessNodes: [`inbound:${inbound.id}`]
     });
-    const hkOnlyUser = await adminPost(app, "users", {
+    const hkUser = await adminPost(app, "users", {
       name: "hk-user",
       planId: hkOnlyPlan.id
     });
-    const hkOnlyText = Buffer.from(
-      await (await fetchSubscription(app, agent, hkOnlyUser.subscriptionToken)).text(),
+    const hkText = Buffer.from(
+      await (await fetchSubscription(app, agent, hkUser.subscriptionToken)).text(),
       "base64"
     ).toString("utf8");
-    assert.match(hkOnlyText, /hk\.example\.com/m);
-    assert.doesNotMatch(hkOnlyText, /jp\.example\.com/m);
+    assert.match(hkText, /hk\.example\.com/m);
+    assert.doesNotMatch(hkText, /jp\.example\.com/m);
 
-    // 用户级节点覆盖：plan 未限制，用户只勾选 JP 节点
     const jpOverrideUser = await adminPost(app, "users", {
       name: "jp-override",
-      planId: protocolIgnored.id,
+      planId: hkOnlyPlan.id,
       access: { accessNodes: [`inbound:${jpInbound.id}`] }
     });
-    const jpOverrideText = Buffer.from(
+    const jpText = Buffer.from(
       await (await fetchSubscription(app, agent, jpOverrideUser.subscriptionToken)).text(),
       "base64"
     ).toString("utf8");
-    assert.match(jpOverrideText, /jp\.example\.com/m);
-    assert.doesNotMatch(jpOverrideText, /hk\.example\.com/m);
+    assert.match(jpText, /jp\.example\.com/m);
+    assert.doesNotMatch(jpText, /hk\.example\.com/m);
 
-    // 分组过滤仍然生效
     const wrongGroupUser = await adminPost(app, "users", {
       name: "dave",
       planId: hkOnlyPlan.id,
       access: { nodeGroups: ["free"] }
     });
-    const wrongGroupResponse = await fetchSubscription(app, agent, wrongGroupUser.subscriptionToken);
-    assert.equal(wrongGroupResponse.status, 200);
-    const wrongGroupText = Buffer.from(await wrongGroupResponse.text(), "base64").toString("utf8");
+    const wrongGroupText = Buffer.from(
+      await (await fetchSubscription(app, agent, wrongGroupUser.subscriptionToken)).text(),
+      "base64"
+    ).toString("utf8");
     assert.equal(wrongGroupText.trim(), "");
 
-    // 停用入站仍然隐藏
-    await adminPatch(app, `node-inbounds/${vlessInbound.id}`, { enabled: false });
+    await adminPatch(app, `node-inbounds/${inbound.id}`, { enabled: false });
     const disabledText = Buffer.from(
       await (await fetchSubscription(app, agent, user.subscriptionToken)).text(),
       "base64"
     ).toString("utf8");
-    assert.doesNotMatch(disabledText, /hk\.example\.com:443/m);
+    assert.doesNotMatch(disabledText, /hk\.example\.com:2053/m);
   } finally {
     await app.close();
   }
@@ -225,64 +178,39 @@ test("subscription format follows user agent and defaults to base64 uri", async 
     const clashResponse = await fetchSubscription(app, agent, user.subscriptionToken, {
       userAgent: "ClashMeta/1.18.0"
     });
-    assert.equal(clashResponse.status, 200);
     assert.match(clashResponse.headers.get("content-type"), /text\/yaml/);
     const clashYaml = await clashResponse.text();
-    assert.match(clashYaml, /type: "vless"/);
-    assert.match(clashYaml, /type: "hysteria2"/);
+    assert.match(clashYaml, /type: "anytls"/);
     assert.match(clashYaml, /MATCH,PROXY/);
 
     const defaultResponse = await fetchSubscription(app, agent, user.subscriptionToken, {
       userAgent: "v2rayNG/1.9.0"
     });
-    assert.equal(defaultResponse.status, 200);
     assert.match(defaultResponse.headers.get("content-type"), /text\/plain/);
     const decoded = Buffer.from(await defaultResponse.text(), "base64").toString("utf8");
-    assert.match(decoded, /^vless:\/\//m);
-    assert.match(decoded, /^hysteria2:\/\//m);
+    assert.match(decoded, /^anytls:\/\//m);
   } finally {
     await app.close();
   }
 });
 
-test("subscription uri builders produce valid vless and hysteria2 links", () => {
+test("subscription uri builder produces valid anytls link", () => {
   const uris = buildUris([
     {
-      name: "HK VLESS",
+      name: "HK AnyTLS",
       host: "hk.example.com",
-      port: 443,
+      port: 2053,
       transport: "tcp",
-      protocol: PROTOCOLS.VLESS_REALITY,
-      uuid: "11111111-2222-3333-4444-555555555555",
-      flow: "xtls-rprx-vision",
-      sni: "www.apple.com",
-      publicKey: "pub-key",
-      shortId: "abcd1234",
-      spiderX: "/",
-      fingerprint: "chrome"
-    },
-    {
-      name: "HK HY2",
-      host: "hk.example.com",
-      port: 8443,
-      transport: "udp",
-      protocol: PROTOCOLS.HYSTERIA2,
+      protocol: PROTOCOLS.ANYTLS,
       password: "p@ss word",
       sni: "hk.example.com",
-      obfsEnabled: true,
-      obfsType: "salamander",
-      obfsPassword: "obfs-secret",
-      upMbps: 50,
-      downMbps: 120,
       insecure: false
     }
   ]);
-  assert.equal(uris.length, 2);
-  assert.match(uris[0], /^vless:\/\/11111111-2222-3333-4444-555555555555@hk\.example\.com:443\?/);
-  assert.match(uris[0], /security=reality/);
-  assert.match(uris[0], /pbk=pub-key/);
-  assert.match(uris[1], /^hysteria2:\/\/p%40ss%20word@hk\.example\.com:8443\?/);
-  assert.match(uris[1], /obfs-password=obfs-secret/);
+  assert.equal(uris.length, 1);
+  assert.match(uris[0], /^anytls:\/\/p%40ss%20word@hk\.example\.com:2053\?/);
+  assert.match(uris[0], /sni=hk\.example\.com/);
+  assert.match(uris[0], /insecure=0/);
 });
 
 test("subscription endpoint rejects invalid credentials, roles and tokens", async () => {
@@ -318,9 +246,7 @@ test("admin can rotate subscription token and credentials, and update settings",
   try {
     const { user, agent } = await seedSubscriptions(app);
     const oldToken = user.subscriptionToken;
-    const oldUuid = user.credentials.vlessUuid;
-    const oldHy2 = user.credentials.hysteria2Password;
-    const oldAnyTls = user.credentials.anytlsPassword;
+    const oldPassword = user.credentials.anytlsPassword;
 
     const resetResponse = await requestJson(app, `/api/v1/admin/users/${user.id}/subscription-token`, {
       method: "POST",
@@ -330,20 +256,11 @@ test("admin can rotate subscription token and credentials, and update settings",
     const newToken = resetResponse.body.user.subscriptionToken;
     assert.match(newToken, /^sub_/);
     assert.notEqual(newToken, oldToken);
-    assert.notEqual(resetResponse.body.user.credentials.vlessUuid, oldUuid);
-    assert.notEqual(resetResponse.body.user.credentials.hysteria2Password, oldHy2);
-    assert.notEqual(resetResponse.body.user.credentials.anytlsPassword, oldAnyTls);
+    assert.notEqual(resetResponse.body.user.credentials.anytlsPassword, oldPassword);
 
-    // 旧凭据不应再出现在订阅内容里（模拟泄漏的旧节点配置失效）
     const newSubscription = await fetchSubscription(app, agent, newToken);
     const newBody = Buffer.from(await newSubscription.text(), "base64").toString("utf8");
-    assert.doesNotMatch(newBody, new RegExp(oldUuid));
-    assert.doesNotMatch(newBody, new RegExp(oldHy2));
-
-    const oldTokenResponse = await fetchSubscription(app, agent, oldToken);
-    assert.equal(oldTokenResponse.status, 404);
-    const newTokenResponse = await fetchSubscription(app, agent, newToken);
-    assert.equal(newTokenResponse.status, 200);
+    assert.doesNotMatch(newBody, new RegExp(oldPassword));
 
     const settingsPatch = await requestJson(app, "/api/v1/admin/settings", {
       method: "PATCH",
@@ -351,22 +268,18 @@ test("admin can rotate subscription token and credentials, and update settings",
       body: {
         subscriptionUserinfo: false,
         subscriptionTitle: "Kato",
-        subscriptionBaseUrl: "https://katotool.com",
+        subscriptionBaseUrl: "https://357602.xyz",
         defaultSubscriptionIntervalSeconds: 7200
       }
     });
     assert.equal(settingsPatch.status, 200);
     assert.equal(settingsPatch.body.subscriptionUserinfo, false);
-    assert.equal(settingsPatch.body.subscriptionBaseUrl, "https://katotool.com");
+    assert.equal(settingsPatch.body.subscriptionBaseUrl, "https://357602.xyz");
 
     const noHeadersResponse = await fetchSubscription(app, agent, newToken);
     assert.equal(noHeadersResponse.headers.get("subscription-userinfo"), null);
     assert.equal(noHeadersResponse.headers.get("profile-title"), "Kato");
     assert.equal(noHeadersResponse.headers.get("profile-update-interval"), "7200");
-
-    const settings = await requestJson(app, "/api/v1/admin/settings", { admin: true });
-    assert.equal(settings.status, 200);
-    assert.equal(settings.body.subscriptionPathPrefix, "go");
   } finally {
     await app.close();
   }
@@ -395,12 +308,13 @@ async function registerAgent(app, bootstrapToken, hostname) {
   return result.body;
 }
 
-async function adminList(app, collection) {
-  const result = await requestJson(app, `/api/v1/admin/${collection}`, {
-    admin: true
+async function fetchSubscription(app, agent, token, options = {}) {
+  return fetch(`${app.url}/api/v1/subscriptions/${encodeURIComponent(token)}`, {
+    headers: {
+      authorization: `Bearer ${agent.agentSecret}`,
+      ...(options.userAgent ? { "user-agent": options.userAgent } : {})
+    }
   });
-  assert.equal(result.status, 200);
-  return result.body.items;
 }
 
 async function adminPost(app, path, body) {

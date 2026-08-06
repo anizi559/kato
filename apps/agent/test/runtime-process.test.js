@@ -48,45 +48,6 @@ test("managed runtime starts realm and forwards tcp traffic", { skip: !hasRealm(
   }
 });
 
-test("managed runtime starts hysteria2 and exposes udp listener", { skip: !hasCommand("hysteria") }, async () => {
-  const dir = await mkdtemp(join(tmpdir(), "kato-hysteria-smoke-"));
-  const port = await getFreeTcpPort();
-  const certPath = join(dir, "server.crt");
-  const keyPath = join(dir, "server.key");
-  const config = runtimeConfig(dir);
-
-  await execFileAsync("hysteria", [
-    "cert",
-    "--host",
-    "127.0.0.1",
-    "--cert",
-    certPath,
-    "--key",
-    keyPath,
-    "--overwrite"
-  ]);
-
-  try {
-    await applyRuntimeConfig(config, hysteriaDesired(port, certPath, keyPath));
-    const started = await startManagedRuntime(config);
-    assert.equal(started.components[0].component, "hysteria2");
-    assert.equal(started.components[0].status, "started");
-
-    const ports = await waitFor(async () => {
-      const checks = await checkRuntimePorts(config);
-      const check = checks.find((item) => item.component === "hysteria2" && item.port === port);
-      return check && check.status !== "closed" ? checks : null;
-    }, "hysteria2 udp listener to appear");
-    const udp = ports.find((item) => item.component === "hysteria2" && item.port === port);
-    assert.ok(["open", "unknown"].includes(udp.status));
-
-    const inspected = await inspectRuntime(config);
-    assert.equal(inspected.components[0].running, true);
-  } finally {
-    await stopManagedRuntime(config).catch(() => {});
-  }
-});
-
 function runtimeConfig(dir) {
   return {
     runtimeDir: join(dir, "runtime"),
@@ -121,54 +82,6 @@ function relayDesired(entryPort, targetPort) {
             host: "127.0.0.1",
             port: targetPort
           }
-        }
-      ]
-    }
-  };
-}
-
-function hysteriaDesired(port, certPath, keyPath) {
-  return {
-    agentId: "agent_proxy",
-    configVersion: 22,
-    desiredState: {
-      kind: "proxy-node",
-      proxyNode: { id: "proxy_1", name: "proxy-1" },
-      accessNodes: [],
-      runtime: { mode: "lite" },
-      inbounds: [
-        {
-          id: "inbound_hy2",
-          proxyNodeId: "proxy_1",
-          name: "Hysteria2",
-          protocol: PROTOCOLS.HYSTERIA2,
-          listen: "0.0.0.0",
-          port,
-          transport: "udp",
-          config: {
-            tls: {
-              certPath,
-              keyPath
-            },
-            obfs: {
-              enabled: true,
-              password: "obfs-secret"
-            },
-            bandwidth: {
-              upMbps: 50,
-              downMbps: 100
-            }
-          },
-          users: [
-            {
-              userId: "user_1",
-              name: "alice",
-              credential: {
-                type: "hysteria2",
-                password: "hy2-secret"
-              }
-            }
-          ]
         }
       ]
     }

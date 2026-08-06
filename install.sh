@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.9.3"
+APP_VERSION="0.10.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -85,7 +85,7 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
   backend-core       面板后端 API、本地数据库、管理员账号初始化
   admin-ui           面板前端服务器：根路径工具站，隐藏路径进入管理后台
   subscription-edge  订阅入口服务器：对外分发用户订阅
-  proxy-node         代理节点 Agent，并安装 Xray / Hysteria2 / sing-box(AnyTLS)
+  proxy-node         代理节点 Agent，并安装 sing-box（AnyTLS）
   transit-relay      中转服务器 Agent，并安装 Realm
 
 通用参数：
@@ -97,7 +97,7 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
                                   切换 apt 软件源；国内服务器建议 tuna 或 aliyun
   --skip-deps                    跳过系统依赖和 Node.js 安装
   --skip-source-sync             直接使用当前源码目录，不复制到安装目录
-  --force-runtime-binaries       重新下载 Xray / Hysteria2 / Realm；升级模式默认开启
+  --force-runtime-binaries       重新下载 sing-box / Realm；升级模式默认开启
   --non-interactive              非交互模式；缺少必要参数时直接失败，不弹菜单
 
 HTTPS / 证书参数（前端和后端均可使用）：
@@ -129,7 +129,7 @@ Agent / 节点参数：
                                   同步配置后是否自动启动代理运行进程
   --binary-validation <true|false>
                                   是否在应用配置前调用二进制做配置校验
-  --skip-runtime-binaries        不安装 Xray / Hysteria2 / Realm 等运行程序
+  --skip-runtime-binaries        不安装 sing-box / Realm 等运行程序
 
 订阅入口参数：
   --subscription-path-prefix <path>
@@ -1875,49 +1875,6 @@ github_latest_tag() {
     | head -n 1
 }
 
-install_xray() {
-  if command_exists xray && [[ "$force_runtime_binaries" != "true" ]]; then
-    log "Xray 已安装：$(xray version 2>/dev/null | head -n 1 || true)"
-    return
-  fi
-  local arch asset version tmp
-  case "$(uname -m)" in
-    x86_64|amd64) asset="Xray-linux-64.zip" ;;
-    aarch64|arm64) asset="Xray-linux-arm64-v8a.zip" ;;
-    *) die "不支持的 Xray 架构：$(uname -m)" ;;
-  esac
-  version="${KATO_XRAY_VERSION:-$(github_latest_tag XTLS/Xray-core)}"
-  [[ -n "$version" ]] || die "无法获取最新 Xray 版本"
-  tmp="$(mktemp -d)"
-  log "正在安装 Xray ${version}"
-  curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/XTLS/Xray-core/releases/download/${version}/${asset}"
-  unzip -q "${tmp}/${asset}" -d "$tmp/xray"
-  install -m 0755 "${tmp}/xray/xray" /usr/local/bin/xray
-  rm -rf "$tmp"
-  setcap 'cap_net_bind_service=+ep' /usr/local/bin/xray || warn "给 xray 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
-}
-
-install_hysteria() {
-  if command_exists hysteria && [[ "$force_runtime_binaries" != "true" ]]; then
-    log "Hysteria 已安装：$(hysteria version 2>/dev/null | head -n 1 || true)"
-    return
-  fi
-  local arch asset version tmp
-  case "$(uname -m)" in
-    x86_64|amd64) asset="hysteria-linux-amd64" ;;
-    aarch64|arm64) asset="hysteria-linux-arm64" ;;
-    *) die "不支持的 Hysteria 架构：$(uname -m)" ;;
-  esac
-  version="${KATO_HYSTERIA_VERSION:-$(github_latest_tag apernet/hysteria)}"
-  [[ -n "$version" ]] || die "无法获取最新 Hysteria 版本"
-  tmp="$(mktemp -d)"
-  log "正在安装 Hysteria ${version}"
-  curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/apernet/hysteria/releases/download/${version}/${asset}"
-  install -m 0755 "${tmp}/${asset}" /usr/local/bin/hysteria
-  rm -rf "$tmp"
-  setcap 'cap_net_bind_service=+ep' /usr/local/bin/hysteria || warn "给 hysteria 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
-}
-
 install_singbox() {
   if command_exists sing-box && [[ "$force_runtime_binaries" != "true" ]]; then
     log "sing-box 已安装：$(sing-box version 2>/dev/null | head -n 1 || true)"
@@ -1966,8 +1923,6 @@ install_runtime_binaries() {
   [[ "$skip_runtime_binaries" != "true" ]] || return 0
   case "$role" in
     proxy-node)
-      install_xray
-      install_hysteria
       install_singbox
       ;;
     transit-relay)
@@ -2025,8 +1980,6 @@ const config = {
   binaryValidation: bool(process.env.AGENT_BINARY_VALIDATION),
   autoStart: bool(process.env.AGENT_AUTO_START),
   binaries: {
-    xray: "/usr/local/bin/xray",
-    hysteria: "/usr/local/bin/hysteria",
     realm: "/usr/local/bin/realm",
     singbox: "/usr/local/bin/sing-box"
   }

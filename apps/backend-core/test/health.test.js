@@ -51,7 +51,7 @@ test("health probes mark access nodes ok and failed with alerts", async () => {
     const inbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: proxyNode.id,
       name: "Probe VLESS",
-      protocol: PROTOCOLS.VLESS_REALITY,
+      protocol: PROTOCOLS.ANYTLS,
       port: tcp.port
     });
     const first = await app.store.runHealthProbes();
@@ -88,7 +88,7 @@ test("health probes cover relay rules", async () => {
     const inbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: proxyNode.id,
       name: "Probe Relay VLESS",
-      protocol: PROTOCOLS.VLESS_REALITY,
+      protocol: PROTOCOLS.ANYTLS,
       port: 443
     });
     const relay = await adminPost(app, "transit-relays", {

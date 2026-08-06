@@ -102,49 +102,6 @@ export async function discoverRuntimeComponents(config) {
   const dir = runtimeDir(config);
   const components = [];
 
-  const xrayConfig = join(dir, "xray", "config.json");
-  const xray = await readJsonIfExists(xrayConfig);
-  if (xray) {
-    components.push({
-      id: "xray",
-      component: "xray",
-      configPath: xrayConfig,
-      command: config.binaries?.xray || "xray",
-      args: ["run", "-c", xrayConfig],
-      ports: (xray.inbounds || []).map((inbound) => ({
-        protocol: "tcp",
-        host: inbound.listen || "0.0.0.0",
-        port: inbound.port
-      }))
-    });
-  }
-
-  const hysteriaDir = join(dir, "hysteria2");
-  for (const file of await listFilesIfExists(hysteriaDir)) {
-    if (!file.endsWith(".yaml") && !file.endsWith(".yml")) {
-      continue;
-    }
-    const configPath = join(hysteriaDir, file);
-    const content = await readFile(configPath, "utf8");
-    const listen = parseHysteriaListen(content);
-    components.push({
-      id: `hysteria2-${file.replace(/\.[^.]+$/, "")}`,
-      component: "hysteria2",
-      configPath,
-      command: config.binaries?.hysteria || "hysteria",
-      args: ["server", "-c", configPath, "--disable-update-check", "-l", "warn"],
-      ports: listen
-        ? [
-            {
-              protocol: "udp",
-              host: listen.host,
-              port: listen.port
-            }
-          ]
-        : []
-    });
-  }
-
   const realmConfig = join(dir, "realm", "config.json");
   const realm = await readJsonIfExists(realmConfig);
   if (realm) {
@@ -410,18 +367,6 @@ async function listFilesIfExists(path) {
     }
     throw error;
   }
-}
-
-function parseHysteriaListen(content) {
-  const match = content.match(/^listen:\s*["']?([^"'\n]+)["']?/m);
-  if (!match) {
-    return null;
-  }
-  const listen = match[1].trim();
-  if (listen.startsWith(":")) {
-    return { host: "0.0.0.0", port: Number(listen.slice(1)) };
-  }
-  return parseHostPort(listen);
 }
 
 function parseHostPort(value) {

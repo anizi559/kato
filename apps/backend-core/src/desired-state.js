@@ -179,27 +179,6 @@ function renderProtocolUser(user, protocol, state) {
     limits: user.limits
   };
 
-  if (protocol === PROTOCOLS.VLESS_REALITY) {
-    return {
-      ...common,
-      credential: {
-        type: "vless",
-        uuid: user.credentials.vlessUuid,
-        flow: user.credentials.vlessFlow || "xtls-rprx-vision"
-      }
-    };
-  }
-
-  if (protocol === PROTOCOLS.HYSTERIA2) {
-    return {
-      ...common,
-      credential: {
-        type: "hysteria2",
-        password: user.credentials.hysteria2Password
-      }
-    };
-  }
-
   if (protocol === PROTOCOLS.ANYTLS) {
     return {
       ...common,

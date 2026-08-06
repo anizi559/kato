@@ -8,12 +8,13 @@
 
 - 第一阶段：Backend Core 最小 API、Agent 注册/心跳/desired-state、last known good config、项目骨架。
 - 第二阶段：核心资源模型、管理 API、Proxy/Relay desired-state 编译、中转访问节点与 Relay Rule 联动。
-- 第三阶段：Agent 运行配置渲染、Xray/Hysteria2/Realm 配置落盘、备份、离线重放、Xray 配置 test 校验、托管进程启动/停止/状态检查。
+- 第三阶段：Agent 运行配置渲染、sing-box/Realm 配置落盘、备份、离线重放、配置校验、托管进程启动/停止/状态检查。
 - 第四阶段（v0.4.x）：中文交互安装向导、五类角色一键安装/升级、HTTPS/证书自动化、前端工具站、安装 Token 弹窗、服务器管理分组。
 - 第五阶段（v0.5.0）：订阅服务器 Subscription Edge 正式落地，支持 sing-box / Clash Meta / URI+Base64 订阅、按权限组过滤节点、UA 自动识别格式、订阅 Token 重置、订阅相关系统设置。
 - 第六阶段（v0.6.0）：订阅入口缓存/限速/故障兜底；真实流量统计（Xray stats API + Hysteria2 Traffic Stats API，Agent 周期上报）；监控告警（离线/运行异常检测、Webhook/Telegram 通知、告警/审计/流量页面接入）；AnyTLS 协议支持（sing-box 服务端 + 订阅分发）。
 - v0.6.1：主动健康探测（Backend 定时探测访问节点与转发规则端口，失败自动生成告警；前端展示探测状态/延迟）。
 - v0.7.0：面板系统设置可在线修改管理后台隐藏路径（前端本地管理服务自动改 Nginx 并迁移目录）；REALITY Dest/SNI 可在新建协议入站时自定义，编辑入站不再丢失密钥。
+- v0.10.0：协议收敛为仅 AnyTLS + Realm 中转；删除 VLESS REALITY / Hysteria2 全部代码、前端与安装逻辑；节点运行时仅 sing-box + realm。
 
 当前目录：
 
@@ -140,9 +141,8 @@ scripts/setup-test-env.sh --mirror tuna --proxy http://127.0.0.1:7897
 
 已覆盖的第三阶段本地工具：
 
-- Xray
-- Hysteria2
 - sing-box
+- Realm
 - gost
 - Realm
 - Go / Rust

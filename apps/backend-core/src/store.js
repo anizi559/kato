@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PROTOCOLS, nowIso } from "../../../packages/shared/src/protocol.js";
 import { compileDesiredState } from "./desired-state.js";
-import { createHex, createId, createSecret, createUuid, createX25519KeyPair, hashPassword, sha256, verifyPassword } from "./security.js";
+import { createId, createSecret, hashPassword, sha256, verifyPassword } from "./security.js";
 import { probeEndpoint } from "./health.js";
 
 const RESOURCE_SPECS = Object.freeze({
@@ -510,7 +510,7 @@ export class JsonStore {
         resource: inbound,
         host,
         port: inbound.port,
-        protocol: inbound.transport || (inbound.protocol === PROTOCOLS.HYSTERIA2 ? "udp" : "tcp")
+        protocol: inbound.transport || "tcp"
       });
     }
 
@@ -527,7 +527,7 @@ export class JsonStore {
         resource: accessNode,
         host,
         port: accessNode.port,
-        protocol: accessNode.transport || (accessNode.protocol === PROTOCOLS.HYSTERIA2 ? "udp" : "tcp")
+        protocol: accessNode.transport || "tcp"
       });
     }
 
@@ -685,9 +685,6 @@ export class JsonStore {
   async rotateUserCredentials(userId) {
     const user = this.requireExisting("users", userId);
     user.subscriptionToken = createSecret("sub");
-    user.credentials.vlessUuid = createUuid();
-    user.credentials.vlessFlow = user.credentials.vlessFlow || "xtls-rprx-vision";
-    user.credentials.hysteria2Password = createSecret("hy2");
     user.credentials.anytlsPassword = createSecret("anytls");
     user.updatedAt = nowIso();
     this.recordAudit("user.credentials_rotated", user.id, { name: user.name });
@@ -879,9 +876,6 @@ export class JsonStore {
         accessNodes: asArray(input.access?.accessNodes)
       },
       credentials: {
-        vlessUuid: input.credentials?.vlessUuid || createUuid(),
-        vlessFlow: input.credentials?.vlessFlow || "xtls-rprx-vision",
-        hysteria2Password: input.credentials?.hysteria2Password || createSecret("hy2"),
         anytlsPassword: input.credentials?.anytlsPassword || createSecret("anytls")
       },
       limits: {
@@ -926,7 +920,7 @@ export class JsonStore {
   createNodeInboundRecord(input) {
     const proxyNode = this.requireExisting("proxy-nodes", input.proxyNodeId);
     const protocol = normalizeInboundProtocol(input.protocol);
-    const transport = normalizeTransport(input.transport, protocol === PROTOCOLS.HYSTERIA2 ? "udp" : "tcp");
+    const transport = normalizeTransport(input.transport, "tcp");
     const name = requiredName(input.name || `${proxyNode.name} ${protocol}`, "node inbound name");
     this.assertNameAvailable("node-inbounds", name);
     const record = withTimestamps({
@@ -1289,6 +1283,15 @@ function normalizeState(rawState) {
     if (user.lastUsageResetAt === undefined) {
       user.lastUsageResetAt = null;
     }
+    if (!user.credentials) {
+      user.credentials = {};
+    }
+    delete user.credentials.vlessUuid;
+    delete user.credentials.vlessFlow;
+    delete user.credentials.hysteria2Password;
+    if (!user.credentials.anytlsPassword) {
+      user.credentials.anytlsPassword = createSecret("anytls");
+    }
     if (!user.access) {
       user.access = { nodeGroups: [], relayGroups: [], protocols: [], regions: [] };
     }
@@ -1371,46 +1374,6 @@ function applyPatch(record, patch) {
 }
 
 function defaultInboundConfig(protocol, input, proxyNode) {
-  if (protocol === PROTOCOLS.VLESS_REALITY) {
-    const keyPair = createX25519KeyPair();
-    return {
-      reality: {
-        publicKey: input.reality?.publicKey || input.publicKey || keyPair.publicKey,
-        privateKey: input.reality?.privateKey || input.privateKey || keyPair.privateKey,
-        shortIds: asArray(input.reality?.shortIds || input.shortIds || [createHex(8)]),
-        serverNames: asArray(input.reality?.serverNames || input.serverNames || ["www.microsoft.com"]),
-        dest: input.reality?.dest || input.dest || "www.microsoft.com:443",
-        spiderX: input.reality?.spiderX || input.spiderX || "/"
-      },
-      flow: input.flow || "xtls-rprx-vision",
-      network: "tcp"
-    };
-  }
-
-  if (protocol === PROTOCOLS.HYSTERIA2) {
-    return {
-      tls: {
-        certRef: input.tls?.certRef || input.certRef || null,
-        sni: input.tls?.sni || input.sni || proxyNode.entryDomain || proxyNode.publicHost || null
-      },
-      obfs: {
-        enabled: input.obfs?.enabled ?? input.obfsEnabled ?? true,
-        type: input.obfs?.type || "salamander",
-        password: input.obfs?.password || input.obfsPassword || createSecret("hy2_obfs")
-      },
-      trafficStats: {
-        enabled: input.trafficStats?.enabled ?? true,
-        listen: input.trafficStats?.listen || null,
-        secret: input.trafficStats?.secret || createSecret("tstats")
-      },
-      bandwidth: {
-        upMbps: input.bandwidth?.upMbps ?? input.upMbps ?? 100,
-        downMbps: input.bandwidth?.downMbps ?? input.downMbps ?? 100
-      },
-      alpn: asArray(input.alpn || ["h3"])
-    };
-  }
-
   if (protocol === PROTOCOLS.ANYTLS) {
     return {
       tls: {
@@ -1427,7 +1390,7 @@ function defaultInboundConfig(protocol, input, proxyNode) {
 }
 
 function normalizeInboundProtocol(protocol) {
-  if (![PROTOCOLS.VLESS_REALITY, PROTOCOLS.HYSTERIA2, PROTOCOLS.ANYTLS].includes(protocol)) {
+  if (protocol !== PROTOCOLS.ANYTLS) {
     throw httpError(`Unsupported inbound protocol: ${protocol}`, 400);
   }
   return protocol;

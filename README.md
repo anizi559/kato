@@ -13,6 +13,7 @@
 - 第五阶段（v0.5.0）：订阅服务器 Subscription Edge 正式落地，支持 sing-box / Clash Meta / URI+Base64 订阅、按权限组过滤节点、UA 自动识别格式、订阅 Token 重置、订阅相关系统设置。
 - 第六阶段（v0.6.0）：订阅入口缓存/限速/故障兜底；真实流量统计（Xray stats API + Hysteria2 Traffic Stats API，Agent 周期上报）；监控告警（离线/运行异常检测、Webhook/Telegram 通知、告警/审计/流量页面接入）；AnyTLS 协议支持（sing-box 服务端 + 订阅分发）。
 - v0.6.1：主动健康探测（Backend 定时探测访问节点与转发规则端口，失败自动生成告警；前端展示探测状态/延迟）。
+- v0.7.0：面板系统设置可在线修改管理后台隐藏路径（前端本地管理服务自动改 Nginx 并迁移目录）；REALITY Dest/SNI 可在新建协议入站时自定义，编辑入站不再丢失密钥。
 
 当前目录：
 

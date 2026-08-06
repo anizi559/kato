@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.6.5"
+APP_VERSION="0.7.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -1634,7 +1634,7 @@ install_admin_ui() {
   (cd "$app_dir" && "$install_root/node/bin/npm" ci)
 
   log "正在构建面板前端"
-  (cd "$app_dir" && VITE_ADMIN_API_BASE_URL="" VITE_ENABLE_DEMO="false" "$install_root/node/bin/npm" run build -- --base "$admin_base")
+  (cd "$app_dir" && VITE_ADMIN_API_BASE_URL="" VITE_ENABLE_DEMO="false" "$install_root/node/bin/npm" run build -- --base "./")
 
   rm -rf "$site_root"
   write_tool_site "$site_root"
@@ -1689,6 +1689,14 @@ server {
         return 302 ${panel_admin_path}/;
     }
 
+    location /_kato/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_pass http://127.0.0.1:8090;
+    }
+
     location ^~ ${panel_admin_path}/ {
         try_files \$uri \$uri/ ${panel_admin_path}/index.html;
     }
@@ -1727,6 +1735,14 @@ server {
         return 302 ${panel_admin_path}/;
     }
 
+    location /_kato/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_pass http://127.0.0.1:8090;
+    }
+
     location ^~ ${panel_admin_path}/ {
         try_files \$uri \$uri/ ${panel_admin_path}/index.html;
     }
@@ -1756,6 +1772,7 @@ EOF
   else
     curl -fsS "http://127.0.0.1:${admin_ui_port}/health" >/dev/null
   fi
+  install_frontend_local
   log "面板前端服务器安装完成"
   if [[ "$tls_mode" == "letsencrypt" ]]; then
     log "工具站入口：https://${public_domain}:${https_port}/"
@@ -1765,6 +1782,89 @@ EOF
     log "管理后台入口：http://$(public_ipv4):${admin_ui_port}${panel_admin_path}/"
   fi
   log "后端 API 反向代理：/api/ -> ${backend_upstream}"
+}
+
+write_frontend_local_config() {
+  local config_path="/etc/kato/frontend-local.json"
+  local env_path="/etc/kato/frontend-local.env"
+  FRONTEND_LOCAL_BACKEND_URL="$backend_url" \
+  FRONTEND_LOCAL_FRONT_TOKEN="$frontend_pairing_token" \
+  FRONTEND_LOCAL_ADMIN_PATH="$panel_admin_path" \
+  "$install_root/node/bin/node" <<'NODE' >"$config_path"
+const config = {
+  _说明: {
+    用途: "Kato 面板前端本地管理服务配置，由安装脚本生成。",
+    host: "只监听本机，由 Nginx 的 /_kato/ 路径转发到这里。",
+    port: "本地管理服务端口。",
+    nginxConfPath: "面板前端 Nginx 配置文件路径。",
+    siteRoot: "面板前端静态文件根目录，修改后台路径时会移动对应目录。",
+    backendUrl: "面板后端 API 地址，用于校验管理员登录状态。",
+    frontendToken: "前端配对 Token，用于向后端校验管理员会话。",
+    adminPath: "当前管理后台隐藏路径。",
+    requestTimeoutMs: "请求后端校验的超时时间。"
+  },
+  host: "127.0.0.1",
+  port: 8090,
+  nginxConfPath: "/etc/nginx/sites-available/kato-panel-frontend.conf",
+  siteRoot: "/var/www/kato-panel-frontend",
+  backendUrl: process.env.FRONTEND_LOCAL_BACKEND_URL,
+  frontendToken: process.env.FRONTEND_LOCAL_FRONT_TOKEN,
+  adminPath: process.env.FRONTEND_LOCAL_ADMIN_PATH,
+  requestTimeoutMs: 10000
+};
+process.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+NODE
+
+  cat >"$env_path" <<EOF
+# Kato 面板前端本地管理服务环境变量文件，由安装脚本生成。
+# 修改后需要执行：systemctl restart kato-frontend-local
+NODE_ENV=production
+# 本地管理服务 JSON 配置文件路径
+FRONTEND_LOCAL_CONFIG=${config_path}
+EOF
+  chown root:kato "$config_path" "$env_path"
+  chmod 0640 "$config_path" "$env_path"
+}
+
+write_frontend_local_service() {
+  write_systemd_service "kato-frontend-local" "[Unit]
+Description=Kato 面板前端本地管理服务
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=${source_dir}
+EnvironmentFile=/etc/kato/frontend-local.env
+ExecStart=${install_root}/node/bin/node apps/frontend-local/src/server.js
+Restart=always
+RestartSec=3
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=false
+
+[Install]
+WantedBy=multi-user.target"
+}
+
+install_frontend_local() {
+  log "正在安装面板前端本地管理服务"
+  write_frontend_local_config
+  write_frontend_local_service
+  systemctl daemon-reload
+  systemctl enable --now kato-frontend-local.service
+  systemctl restart kato-frontend-local.service
+  for _ in $(seq 1 15); do
+    if curl -fsS "http://127.0.0.1:8090/health" >/dev/null 2>&1; then
+      log "面板前端本地管理服务已就绪"
+      return
+    fi
+    sleep 1
+  done
+  journalctl -u kato-frontend-local.service -n 40 --no-pager >&2 || true
+  die "面板前端本地管理服务启动失败"
 }
 
 github_latest_tag() {

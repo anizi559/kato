@@ -41,6 +41,7 @@ import {
   clearAdminSession,
   fetchAdminSession,
   getAdminApiSettings,
+  getAdminSessionToken,
   hasAdminApiToken,
   loginAdmin,
   logoutAdmin,
@@ -1317,6 +1318,7 @@ const resourceFormConfigs = {
       { name: "listen", label: "监听地址", type: "text", defaultValue: "0.0.0.0" },
       { name: "createDirectAccessNode", label: "同步创建 Direct 访问节点", type: "checkbox", defaultValue: true },
       { name: "dest", label: "REALITY Dest", type: "text", defaultValue: "www.microsoft.com:443" },
+      { name: "serverNames", label: "REALITY SNI（逗号分隔）", type: "text", defaultValue: "www.apple.com" },
       { name: "sni", label: "HY2 SNI", type: "text", defaultValue: "" },
       { name: "anytlsSni", label: "AnyTLS SNI", type: "text", defaultValue: "" },
       { name: "certPath", label: "AnyTLS 证书路径", type: "text", defaultValue: "" },
@@ -1330,24 +1332,36 @@ const resourceFormConfigs = {
       listen: item.raw?.listen || "0.0.0.0",
       createDirectAccessNode: false,
       dest: item.raw?.config?.reality?.dest || "",
+      serverNames: item.raw?.config?.reality?.serverNames?.join(", ") || "www.apple.com",
       sni: item.raw?.config?.tls?.sni || "",
       anytlsSni: item.raw?.config?.tls?.sni || "",
       certPath: item.raw?.config?.tls?.certPath || "",
       keyPath: item.raw?.config?.tls?.keyPath || "",
     }),
-    toApiInput: (values) => ({
+    toApiInput: (values, item) => ({
       name: values.name,
       proxyNodeId: values.proxyNodeId,
       protocol: values.protocol,
       port: toNumber(values.port, 443),
       listen: values.listen || "0.0.0.0",
       createDirectAccessNode: Boolean(values.createDirectAccessNode),
-      config:
-        values.protocol === "hysteria2"
-          ? { sni: values.sni }
-          : values.protocol === "anytls"
-            ? { tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath } }
-            : { dest: values.dest },
+      config: (() => {
+        if (values.protocol === "hysteria2") {
+          return { sni: values.sni };
+        }
+        if (values.protocol === "anytls") {
+          return { tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath } };
+        }
+        const existingReality = item?.raw?.config?.reality || {};
+        const names = splitList(values.serverNames);
+        return {
+          reality: {
+            ...existingReality,
+            dest: values.dest,
+            serverNames: names.length ? names : existingReality.serverNames || ["www.apple.com"]
+          }
+        };
+      })(),
     }),
   },
   "transit-relays": {
@@ -2467,6 +2481,8 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
 
 function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings, onSaveBackendSettings }) {
   const [apiSettings, setApiSettings] = useState(() => getAdminApiSettings());
+  const [frontendLocal, setFrontendLocal] = useState({ adminPath: "", loaded: false });
+  const [frontendPathInput, setFrontendPathInput] = useState("");
   const [subscriptionSettings, setSubscriptionSettings] = useState({
     subscriptionBaseUrl: "",
     subscriptionPathPrefix: "go",
@@ -2499,12 +2515,53 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
     }
   }, [backendSettings]);
 
+  useEffect(() => {
+    fetch("/_kato/api/local/settings")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (data?.adminPath) {
+          setFrontendLocal({ adminPath: data.adminPath, loaded: true });
+          setFrontendPathInput(data.adminPath);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   function updateApiSetting(key, value) {
     setApiSettings((current) => ({ ...current, [key]: value }));
   }
 
   function updateSubscriptionSetting(key, value) {
     setSubscriptionSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveFrontendPath() {
+    const next = frontendPathInput.trim();
+    if (!next || next === "/") {
+      showToast("请输入新的管理后台路径");
+      return;
+    }
+    try {
+      const response = await fetch("/_kato/api/local/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          adminPath: next,
+          adminSessionToken: getAdminSessionToken()
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        showToast(`修改失败：${payload.message || `HTTP ${response.status}`}`);
+        return;
+      }
+      showToast("管理后台路径已修改，正在跳转...");
+      window.setTimeout(() => {
+        window.location.href = `${payload.adminPath}/`;
+      }, 800);
+    } catch (error) {
+      showToast(`修改失败：${error.message}`);
+    }
   }
 
   return (
@@ -2537,6 +2594,14 @@ function SettingsPage({ showToast, apiStatus, onSaveApiSettings, backendSettings
             <label><span>系统名称</span><input defaultValue="Kato Control Plane" /></label>
             <label><span>环境</span><select defaultValue="production"><option value="production">production</option><option value="staging">staging</option></select></label>
             <label><span>时区</span><select defaultValue="Asia/Shanghai"><option>Asia/Shanghai</option><option>UTC</option></select></label>
+          </section>
+
+          <section className="setting-panel">
+            <h2>前端入口设置</h2>
+            <label><span>当前管理后台路径</span><input value={frontendLocal.adminPath || (frontendLocal.loaded ? "" : "未获取（本地服务不可用）")} disabled /></label>
+            <label><span>新管理后台路径</span><input placeholder="例如 /admin-a1b2c3d4" value={frontendPathInput} onChange={(event) => setFrontendPathInput(event.target.value)} /></label>
+            <p className="drawer-note">修改后当前页面会自动跳转到新路径，旧路径立即失效。路径只能包含字母、数字、点、下划线和中横线，不要用 admin、panel 这类常见词。</p>
+            <button className="button button--primary" type="button" onClick={saveFrontendPath}><IconShieldLock size={16} stroke={1.9} />保存并跳转</button>
           </section>
 
           <section className="setting-panel">
@@ -3274,7 +3339,7 @@ export function App() {
     const formConfig = resourceFormConfigs[sectionId];
 
     if (hasAdminApiToken() && collection) {
-      const body = formConfig.toApiInput(values);
+      const body = formConfig.toApiInput(values, item);
       if (item?.raw?.id) {
         await adminPatch(`/api/v1/admin/${collection}/${item.raw.id}`, body);
         showToast(`${formConfig.label}已更新`);

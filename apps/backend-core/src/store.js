@@ -769,7 +769,7 @@ export class JsonStore {
       durationDays: input.durationDays ?? null,
       allowedNodeGroups: asArray(input.allowedNodeGroups),
       allowedRelayGroups: asArray(input.allowedRelayGroups),
-      allowedRegions: asArray(input.allowedRegions),
+      allowedAccessNodes: asArray(input.allowedAccessNodes),
       defaultSubscriptionFormat: input.defaultSubscriptionFormat || "auto",
       nodeSortPolicy: input.nodeSortPolicy || "manual",
       resetPolicy: input.resetPolicy || "none",
@@ -807,7 +807,8 @@ export class JsonStore {
         nodeGroups: asArray(input.access?.nodeGroups),
         relayGroups: asArray(input.access?.relayGroups),
         protocols: asArray(input.access?.protocols),
-        regions: asArray(input.access?.regions)
+        regions: asArray(input.access?.regions),
+        accessNodes: asArray(input.access?.accessNodes)
       },
       credentials: {
         vlessUuid: input.credentials?.vlessUuid || createUuid(),
@@ -1162,6 +1163,9 @@ function normalizeState(rawState) {
     }
     if (!Array.isArray(user.access.protocols)) {
       user.access.protocols = [];
+    }
+    if (!Array.isArray(user.access.accessNodes)) {
+      user.access.accessNodes = [];
     }
   }
   state.bootstrapTokens = Array.isArray(state.bootstrapTokens) ? state.bootstrapTokens : [];

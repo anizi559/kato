@@ -94,8 +94,7 @@ const columns = {
     { key: "status", label: "状态", width: "68px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "trafficQuota", label: "流量额度", width: "92px" },
     { key: "duration", label: "有效期", width: "76px" },
-    { key: "regions", label: "允许区域", width: "110px" },
-    { key: "nodeGroups", label: "节点组", width: "96px" },
+    { key: "visibleNodes", label: "可见节点", width: "90px" },
     { key: "accessNodes", label: "节点数", width: "72px" },
     { key: "userCount", label: "用户", width: "62px" },
     { key: "configVersion", label: "版本", width: "52px" },
@@ -282,7 +281,7 @@ const resourceConfigs = {
     ],
     detailRows: [
       ["用户 ID", "id"], ["权限组", "plan"], ["到期时间", "expiresAt"], ["流量用量", "trafficUsed"],
-      ["可见区域", "regions"], ["订阅状态", "subscription"], ["创建时间", "createdAt"],
+      ["可见节点", "visibleNodes"], ["订阅状态", "subscription"], ["创建时间", "createdAt"],
     ],
     relationRows: [
       ["可见节点", "nodes"], ["订阅服务", () => "-"], ["配置版本", "configVersion"],
@@ -299,14 +298,14 @@ const resourceConfigs = {
     tableLabel: "权限组列表",
     primaryAction: "新建权限组",
     secondaryAction: "编辑排序",
-    searchPlaceholder: "搜索权限组名称、区域或额度...",
-    searchKeys: ["id", "name", "trafficQuota", "regions"],
+    searchPlaceholder: "搜索权限组名称或额度...",
+    searchKeys: ["id", "name", "trafficQuota"],
     segments: [{ label: "All", value: "All" }, { label: "启用", value: "启用" }, { label: "停用", value: "停用" }],
     segmentKey: "status",
     filters: [
       { key: "status", label: "状态", options: ["全部", "启用", "停用"] },
     ],
-    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["允许区域", "regions"], ["允许节点组", "nodeGroups"], ["HY2 速率", "hy2Speed"]],
+    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["可见节点", "visibleNodes"], ["HY2 速率", "hy2Speed"]],
     relationRows: [["访问节点", "accessNodes"], ["用户数量", "userCount"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `plan: ${row.id}\ntraffic_quota: ${row.trafficQuota}\nduration: ${row.duration}\nprotocols: ${row.protocols}\naccess_nodes: ${row.accessNodes}\nusers: ${row.userCount}`,
@@ -997,8 +996,7 @@ function adaptPlan(plan, context) {
     status: enabledLabel(plan, "启用", "停用"),
     trafficQuota: formatBytes(plan.trafficLimitBytes),
     duration: plan.durationDays ? `${plan.durationDays} 天` : "不限",
-    regions: plan.allowedRegions?.length ? plan.allowedRegions.join(", ") : "全部",
-    nodeGroups: plan.allowedNodeGroups?.length ? plan.allowedNodeGroups.join(", ") : "全部",
+    visibleNodes: plan.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
     accessNodes: `${context.accessRaw.length} 个`,
     userCount: String(userCount),
     hy2Speed: `${plan.hysteria2?.upMbps || 0} / ${plan.hysteria2?.downMbps || 0} Mbps`,
@@ -1011,7 +1009,6 @@ function adaptPlan(plan, context) {
 function adaptUser(user, context) {
   const plan = context.plansById.get(user.planId);
   const total = user.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null;
-  const regions = user.access?.regions?.length ? user.access.regions : plan?.allowedRegions || [];
   return {
     id: user.name || user.email || user.id,
     resourceId: user.id,
@@ -1023,7 +1020,7 @@ function adaptUser(user, context) {
     plan: plan?.name || "未绑定",
     expiresAt: isoText(user.expiresAt, "不限").slice(0, 10),
     trafficUsed: `${formatBytes(user.usedTrafficBytes || 0)} / ${formatBytes(total)}`,
-    regions: regions.length ? regions.join(", ") : "全部",
+    visibleNodes: plan?.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
     protocols: "全部",
     subscription: user.enabled === false ? "禁用" : "启用",
     lastSeen: user.lastProxyUseAt ? isoText(user.lastProxyUseAt) : "未使用",
@@ -1221,8 +1218,6 @@ const resourceFormConfigs = {
       { name: "expiresAt", label: "到期时间", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量上限 GiB", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用用户", type: "checkbox", defaultValue: true },
-      { name: "regions", label: "可见区域覆盖", type: "text", defaultValue: "", hint: "逗号分隔，留空继承权限组；例如 HK,JP" },
-      { name: "nodeGroups", label: "可见节点组覆盖", type: "text", defaultValue: "", hint: "逗号分隔，留空继承权限组" },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -1231,8 +1226,6 @@ const resourceFormConfigs = {
       expiresAt: item.raw?.expiresAt || "",
       trafficLimitGiB: item.raw?.trafficLimitBytes ? trimNumber(item.raw.trafficLimitBytes / gib) : "",
       enabled: item.raw?.enabled !== false,
-      regions: joinList(item.raw?.access?.regions || []),
-      nodeGroups: joinList(item.raw?.access?.nodeGroups || []),
     }),
     toApiInput: (values) => ({
       name: values.name,
@@ -1241,7 +1234,7 @@ const resourceFormConfigs = {
       expiresAt: values.expiresAt || null,
       trafficLimitBytes: trafficBytesFromGiB(values.trafficLimitGiB),
       enabled: Boolean(values.enabled),
-      access: { regions: splitList(values.regions), nodeGroups: splitList(values.nodeGroups), protocols: [] },
+      access: { protocols: [] },
     }),
   },
   plans: {
@@ -1250,9 +1243,7 @@ const resourceFormConfigs = {
       { name: "name", label: "权限组名称", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量额度 GiB", type: "number", defaultValue: 500 },
       { name: "durationDays", label: "有效期天数", type: "number", defaultValue: 90 },
-      { name: "allowedRegions", label: "允许区域", type: "text", defaultValue: "", hint: "逗号分隔，留空=全部区域；例如 HK,JP" },
-      { name: "allowedNodeGroups", label: "允许节点组", type: "text", defaultValue: "", hint: "逗号分隔，留空=全部节点" },
-      { name: "allowedRelayGroups", label: "允许中转组", type: "text", defaultValue: "", hint: "逗号分隔，留空=全部中转" },
+      { name: "allowedAccessNodes", label: "可见节点（勾选）", type: "nodes", options: (data) => (data["access-nodes"] || []).map((node) => ({ label: `${node.name} · ${node.host}:${node.port}`, value: node.resourceId })), hint: "不勾选任何节点 = 该权限组可见全部节点" },
       { name: "speedLimitMbps", label: "限速 Mbps", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用权限组", type: "checkbox", defaultValue: true },
     ],
@@ -1260,9 +1251,7 @@ const resourceFormConfigs = {
       name: item.raw?.name || item.name || "",
       trafficLimitGiB: item.raw?.trafficLimitBytes ? trimNumber(item.raw.trafficLimitBytes / gib) : "",
       durationDays: item.raw?.durationDays || "",
-      allowedRegions: joinList(item.raw?.allowedRegions || []),
-      allowedNodeGroups: joinList(item.raw?.allowedNodeGroups || []),
-      allowedRelayGroups: joinList(item.raw?.allowedRelayGroups || []),
+      allowedAccessNodes: item.raw?.allowedAccessNodes || [],
       speedLimitMbps: item.raw?.speedLimitMbps || "",
       enabled: item.raw?.enabled !== false,
     }),
@@ -1271,9 +1260,7 @@ const resourceFormConfigs = {
       enabled: Boolean(values.enabled),
       trafficLimitBytes: trafficBytesFromGiB(values.trafficLimitGiB),
       durationDays: toNumber(values.durationDays, null),
-      allowedRegions: splitList(values.allowedRegions),
-      allowedNodeGroups: splitList(values.allowedNodeGroups),
-      allowedRelayGroups: splitList(values.allowedRelayGroups),
+      allowedAccessNodes: values.allowedAccessNodes || [],
       speedLimitMbps: toNumber(values.speedLimitMbps, null),
     }),
   },
@@ -2727,6 +2714,7 @@ function resolveFieldOptions(field, resourceData) {
 function resolveFieldDefault(field, resourceData) {
   if (typeof field.defaultValue === "function") return field.defaultValue(resourceData);
   if (field.type === "checkbox") return Boolean(field.defaultValue);
+  if (field.type === "nodes") return [];
   return field.defaultValue ?? "";
 }
 
@@ -2996,6 +2984,31 @@ function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, on
                 <span className="checkbox-line">
                   <input checked={Boolean(values[field.name])} type="checkbox" onChange={(event) => updateValue(field.name, event.target.checked)} />
                   <small>{Boolean(values[field.name]) ? "已启用" : "已关闭"}</small>
+                </span>
+              ) : field.type === "nodes" ? (
+                <span className="node-picker">
+                  {resolveFieldOptions(field, resourceData).map((option) => {
+                    const checked = (values[field.name] || []).includes(option.value);
+                    return (
+                      <label className="node-picker__item" key={option.value}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            const current = values[field.name] || [];
+                            const next = event.target.checked
+                              ? [...current, option.value]
+                              : current.filter((value) => value !== option.value);
+                            updateValue(field.name, next);
+                          }}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    );
+                  })}
+                  {resolveFieldOptions(field, resourceData).length === 0 ? (
+                    <small className="field-hint">还没有访问节点，请先创建节点入站</small>
+                  ) : null}
                 </span>
               ) : field.type === "textarea" ? (
                 <textarea value={values[field.name] ?? ""} onChange={(event) => updateValue(field.name, event.target.value)} />

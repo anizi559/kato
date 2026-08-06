@@ -1012,6 +1012,26 @@ a {
   background: #ffffff;
 }
 
+.node-picker {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 10px;
+  background: #fbfcfe;
+}
+
+.node-picker__item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: #25324a;
+  cursor: pointer;
+}
+
 .checkbox-line input {
   width: 16px;
   height: 16px;

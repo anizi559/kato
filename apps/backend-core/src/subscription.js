@@ -57,12 +57,9 @@ function visibleAccessNodes(state, user, plan) {
       return false;
     }
 
-    const regions = nonEmpty(user.access.regions, plan?.allowedRegions);
-    if (regions.length) {
-      const proxyNode = state.proxyNodes.find((item) => item.id === accessNode.proxyNodeId);
-      if (!proxyNode || !regions.includes(proxyNode.region)) {
-        return false;
-      }
+    const allowedNodes = nonEmpty(user.access.accessNodes, plan?.allowedAccessNodes);
+    if (allowedNodes.length && !allowedNodes.includes(accessNode.id)) {
+      return false;
     }
 
     const nodeGroups = nonEmpty(user.access.nodeGroups, plan?.allowedNodeGroups);

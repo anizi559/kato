@@ -132,7 +132,7 @@ test("subscription endpoint returns sing-box json with visible nodes and userinf
 test("subscription supports all protocols and filters by regions, groups and enabled state", async () => {
   const app = await startTestServer();
   try {
-    const { user, agent, vlessInbound } = await seedSubscriptions(app);
+    const { user, agent, vlessInbound, hy2Inbound } = await seedSubscriptions(app);
 
     const jpProxy = await adminPost(app, "proxy-nodes", {
       name: "jp-01",
@@ -165,10 +165,14 @@ test("subscription supports all protocols and filters by regions, groups and ena
     assert.match(protocolIgnoredText, /^vless:\/\//m);
     assert.match(protocolIgnoredText, /^hysteria2:\/\//m);
 
-    // 区域过滤：pro 只允许 HK -> 只有香港节点
+    // 节点勾选：HK Only 只勾选香港的两个节点
+    const accessNodes = await adminList(app, "access-nodes");
+    const hkVlessAccess = accessNodes.find((item) => item.inboundId === vlessInbound.id);
+    const hkHy2Access = accessNodes.find((item) => item.inboundId === hy2Inbound.id);
+    const jpAccess = accessNodes.find((item) => item.host === "jp.example.com");
     const hkOnlyPlan = await adminPost(app, "plans", {
       name: "HK Only",
-      allowedRegions: ["HK"]
+      allowedAccessNodes: [hkVlessAccess.id, hkHy2Access.id]
     });
     const hkOnlyUser = await adminPost(app, "users", {
       name: "hk-user",
@@ -181,11 +185,11 @@ test("subscription supports all protocols and filters by regions, groups and ena
     assert.match(hkOnlyText, /hk\.example\.com/m);
     assert.doesNotMatch(hkOnlyText, /jp\.example\.com/m);
 
-    // 用户级区域覆盖：plan 允许 HK，用户覆盖为 JP
+    // 用户级节点覆盖：plan 未限制，用户只勾选 JP 节点
     const jpOverrideUser = await adminPost(app, "users", {
       name: "jp-override",
-      planId: hkOnlyPlan.id,
-      access: { regions: ["JP"] }
+      planId: protocolIgnored.id,
+      access: { accessNodes: [jpAccess.id] }
     });
     const jpOverrideText = Buffer.from(
       await (await fetchSubscription(app, agent, jpOverrideUser.subscriptionToken)).text(),
@@ -206,9 +210,7 @@ test("subscription supports all protocols and filters by regions, groups and ena
     assert.equal(wrongGroupText.trim(), "");
 
     // 停用节点仍然隐藏
-    const accessNodes = await adminList(app, "access-nodes");
-    const vlessAccess = accessNodes.find((item) => item.inboundId === vlessInbound.id);
-    await adminPatch(app, `access-nodes/${vlessAccess.id}`, { enabled: false });
+    await adminPatch(app, `access-nodes/${hkVlessAccess.id}`, { enabled: false });
     const disabledText = Buffer.from(
       await (await fetchSubscription(app, agent, user.subscriptionToken)).text(),
       "base64"

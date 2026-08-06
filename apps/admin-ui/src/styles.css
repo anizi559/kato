@@ -1059,9 +1059,9 @@ a {
 
 .node-picker__item {
   display: flex;
-  gap: 9px;
+  gap: 8px;
   align-items: center;
-  min-height: 34px;
+  min-height: 30px;
   padding: 0 10px;
   border-radius: 6px;
   font-size: 13px;
@@ -1072,6 +1072,20 @@ a {
 
 .node-picker__item:hover {
   background: #f2f7ff;
+}
+
+.node-picker__item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+.node-picker__item:has(input:checked) {
+  background: #eaf2ff;
+  color: #075bd8;
+  font-weight: 600;
 }
 
 .anytls-cert-box {

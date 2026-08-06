@@ -1366,6 +1366,7 @@ const resourceFormConfigs = {
       { name: "anytlsSni", label: "AnyTLS SNI", type: "text", defaultValue: "" },
       { name: "certPath", label: "AnyTLS 证书路径", type: "text", defaultValue: "" },
       { name: "keyPath", label: "AnyTLS 私钥路径", type: "text", defaultValue: "" },
+      { name: "anytlsInsecure", label: "允许自签/不安全证书", type: "checkbox", defaultValue: false },
     ],
     fromItem: (item) => ({
       name: item.raw?.name || item.name || "",
@@ -1380,6 +1381,7 @@ const resourceFormConfigs = {
       anytlsSni: item.raw?.config?.tls?.sni || "",
       certPath: item.raw?.config?.tls?.certPath || "",
       keyPath: item.raw?.config?.tls?.keyPath || "",
+      anytlsInsecure: item.raw?.config?.tls?.insecure === true,
     }),
     toApiInput: (values, item) => ({
       name: values.name,
@@ -1393,7 +1395,7 @@ const resourceFormConfigs = {
           return { sni: values.sni };
         }
         if (values.protocol === "anytls") {
-          return { tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath } };
+          return { tls: { sni: values.anytlsSni, certPath: values.certPath, keyPath: values.keyPath, insecure: Boolean(values.anytlsInsecure) } };
         }
         const existingReality = item?.raw?.config?.reality || {};
         const names = splitList(values.serverNames);

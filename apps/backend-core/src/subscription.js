@@ -176,7 +176,7 @@ function buildSubscriptionNodes(user, plan, entries, state) {
         ...base,
         password: user.credentials.anytlsPassword,
         sni: tls.sni || proxyNode?.entryDomain || proxyNode?.publicHost || entry.host,
-        insecure: false
+        insecure: tls.insecure === true
       };
     }
 

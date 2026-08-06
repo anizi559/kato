@@ -1386,7 +1386,8 @@ function defaultInboundConfig(protocol, input, proxyNode) {
       tls: {
         certPath: input.tls?.certPath || input.tls?.certificatePath || input.certPath || null,
         keyPath: input.tls?.keyPath || input.keyPath || null,
-        sni: input.tls?.sni || input.sni || proxyNode.entryDomain || proxyNode.publicHost || null
+        sni: input.tls?.sni || input.sni || proxyNode.entryDomain || proxyNode.publicHost || null,
+        insecure: input.tls?.insecure === true
       },
       network: "tcp"
     };

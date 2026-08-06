@@ -54,7 +54,8 @@ test("anytls inbound compiles desired state and subscription formats", async () 
         tls: {
           sni: "sg.example.com",
           certPath: "/etc/kato/certs/fullchain.pem",
-          keyPath: "/etc/kato/certs/privkey.pem"
+          keyPath: "/etc/kato/certs/privkey.pem",
+          insecure: true
         }
       }
     });
@@ -78,11 +79,13 @@ test("anytls inbound compiles desired state and subscription formats", async () 
     assert.equal(anytlsOutbound.server_port, 443);
     assert.equal(anytlsOutbound.password, user.credentials.anytlsPassword);
     assert.equal(anytlsOutbound.tls.server_name, "sg.example.com");
+    assert.equal(anytlsOutbound.tls.insecure, true);
 
     const uri = await fetchSubscription(app, subAgent, user.subscriptionToken, "v2rayNG/1.9.0");
     const decoded = Buffer.from(await uri.text(), "base64").toString("utf8");
     assert.match(decoded, /^anytls:\/\//m);
     assert.match(decoded, /sni=sg\.example\.com/);
+    assert.match(decoded, /insecure=1/);
 
     const clash = await fetchSubscription(app, subAgent, user.subscriptionToken, "ClashMeta/1.18.0");
     const clashYaml = await clash.text();

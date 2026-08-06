@@ -889,6 +889,15 @@ a {
   background: rgba(9, 20, 36, 0.28);
 }
 
+.drawer-scrim > .inspector {
+  width: 430px;
+  max-width: calc(100vw - 24px);
+  height: 100vh;
+  margin: 0;
+  border-left: 1px solid var(--line);
+  box-shadow: -24px 0 50px rgba(9, 20, 36, 0.18);
+}
+
 .relay-drawer {
   width: 430px;
   max-width: calc(100vw - 24px);
@@ -1014,22 +1023,30 @@ a {
 
 .node-picker {
   display: grid;
-  gap: 6px;
-  max-height: 220px;
+  gap: 2px;
+  max-height: 260px;
   overflow-y: auto;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  padding: 10px;
-  background: #fbfcfe;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  background: #ffffff;
 }
 
 .node-picker__item {
   display: flex;
-  gap: 8px;
+  gap: 9px;
   align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
   font-size: 13px;
   color: #25324a;
   cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.node-picker__item:hover {
+  background: #f2f7ff;
 }
 
 .anytls-cert-box {
@@ -1408,6 +1425,45 @@ a {
   border-color: #c8d9f6;
   background: #ffffff;
   box-shadow: 0 8px 18px rgba(28, 101, 222, 0.08);
+}
+
+.transit-stack {
+  display: grid;
+  gap: 24px;
+  padding: 0 18px 28px;
+}
+
+.transit-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.transit-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 2px;
+}
+
+.transit-panel__header h2 {
+  margin: 0 0 3px;
+  font-size: 17px;
+  color: #111827;
+}
+
+.transit-panel__header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.transit-panel .content-grid {
+  min-height: 0;
+}
+
+.transit-panel .main-pane {
+  padding: 0;
 }
 
 .overview-insight-grid {

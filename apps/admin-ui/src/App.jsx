@@ -52,7 +52,7 @@ const navItems = [
   { id: "overview", label: "总览", icon: IconHome2 },
   { id: "users", label: "用户", icon: IconUsersGroup },
   { id: "plans", label: "权限组", icon: IconStack2 },
-  { id: "access-nodes", label: "访问节点", icon: IconNetwork },
+  { id: "access-nodes", label: "节点", icon: IconNetwork },
   { id: "servers", label: "服务器管理", icon: IconCloudComputing },
   { id: "monitor", label: "监控日志", icon: IconBellRinging },
   { id: "settings", label: "系统设置", icon: IconSettings },
@@ -94,14 +94,12 @@ const columns = {
     { key: "status", label: "状态", width: "68px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "trafficQuota", label: "流量额度", width: "92px" },
     { key: "duration", label: "有效期", width: "76px" },
-    { key: "visibleNodes", label: "可见节点", width: "90px" },
-    { key: "accessNodes", label: "节点数", width: "72px" },
+    { key: "nodeCount", label: "节点数", width: "76px" },
     { key: "userCount", label: "用户", width: "62px" },
     { key: "configVersion", label: "版本", width: "52px" },
   ],
   access: [
     { key: "id", label: "名称", primary: true, width: "190px", subKey: "summary" },
-    { key: "type", label: "类型", width: "56px" },
     { key: "protocol", label: "协议", width: "54px" },
     { key: "displayHost", label: "显示主机", width: "160px" },
     { key: "region", label: "区域", width: "70px" },
@@ -305,14 +303,14 @@ const resourceConfigs = {
     filters: [
       { key: "status", label: "状态", options: ["全部", "启用", "停用"] },
     ],
-    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["可见节点", "visibleNodes"]],
-    relationRows: [["访问节点", "accessNodes"], ["用户数量", "userCount"], ["配置版本", "configVersion"]],
+    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["节点数", "nodeCount"]],
+    relationRows: [["用户数量", "userCount"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `plan: ${row.id}\ntraffic_quota: ${row.trafficQuota}\nduration: ${row.duration}\nprotocols: ${row.protocols}\naccess_nodes: ${row.accessNodes}\nusers: ${row.userCount}`,
   },
   "access-nodes": {
-    title: "访问节点",
-    subtitle: "用户订阅中最终可见的 direct / relay 节点",
+    title: "中转入口",
+    subtitle: "中转入口自动生成转发规则，将流量转发到指定节点",
     data: accessNodes,
     columns: columns.access,
     tableLabel: "访问节点列表",
@@ -356,7 +354,7 @@ const resourceConfigs = {
     preview: (row) => `proxy_node: ${row.id}\nhost: ${row.host}\nregion: ${row.region}\nruntime: sing-box (AnyTLS)\nconfig_revision: ${row.configVersion}`,
   },
   inbounds: {
-    title: "节点",
+    title: "直连节点",
     subtitle: "添加节点：选择代理服务器、协议和配置，保存后自动下发到节点服务器",
     data: inbounds,
     columns: columns.inbounds,
@@ -701,7 +699,7 @@ function buildSummaryCards(resourceData = {}) {
   const pendingAccessNodes = (resourceData["access-nodes"] || []).filter((node) => node.status === "待发布").length;
   return [
     { label: "用户", value: String((resourceData.users || []).length), meta: "当前数据库用户", tone: "success" },
-    { label: "访问节点", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待应用`, tone: pendingAccessNodes ? "warning" : "success" },
+    { label: "中转入口", value: String((resourceData["access-nodes"] || []).length), meta: `${pendingAccessNodes} 个待应用`, tone: pendingAccessNodes ? "warning" : "success" },
     { label: "代理服务器", value: String((resourceData["proxy-nodes"] || []).length), meta: "由服务器管理接管", tone: "success" },
     { label: "中转服务器", value: String((resourceData["transit-relays"] || []).length), meta: "管理转发链路", tone: "success" },
     { label: "服务器 Agent", value: String(agents.length), meta: offlineAgents ? `${offlineAgents} 个异常` : "心跳正常", tone: offlineAgents ? "danger" : "success" },
@@ -715,7 +713,7 @@ function buildOverviewTasks(resourceData = {}) {
   const offlineAgents = (resourceData.agents || []).filter((agent) => ["离线", "故障", "失败"].includes(agent.status));
   const degradedSubscriptionEdges = (resourceData["subscription-edges"] || []).filter((edge) => ["降级", "故障"].includes(edge.status));
   if (pendingAccessNodes.length) {
-    tasks.push({ tone: "warning", title: `${pendingAccessNodes.length} 个访问节点待发布`, meta: "请检查并发布最新配置" });
+    tasks.push({ tone: "warning", title: `${pendingAccessNodes.length} 个中转入口待发布`, meta: "请检查并发布最新配置" });
   }
   if (offlineAgents.length) {
     tasks.push({ tone: "danger", title: `${offlineAgents.length} 个 Agent 异常`, meta: "请检查节点连接状态" });
@@ -1042,8 +1040,7 @@ function adaptPlan(plan, context) {
     status: enabledLabel(plan, "启用", "停用"),
     trafficQuota: formatBytes(plan.trafficLimitBytes),
     duration: plan.durationDays ? `${plan.durationDays} 天` : "不限",
-    visibleNodes: plan.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
-    accessNodes: `${context.accessRaw.length} 个`,
+    nodeCount: plan.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
     userCount: String(userCount),
     configVersion: `v${context.summary?.version || 1}`,
     createdAt: isoText(plan.createdAt),
@@ -1284,10 +1281,10 @@ const resourceFormConfigs = {
       { name: "name", label: "权限组名称", type: "text", defaultValue: "" },
       { name: "trafficLimitGiB", label: "流量额度 GiB", type: "number", defaultValue: 500 },
       { name: "durationDays", label: "有效期天数", type: "number", defaultValue: 90 },
-      { name: "allowedAccessNodes", label: "可见节点（勾选）", type: "nodes", options: (data) => [
-        ...(data.inbounds || []).map((node) => ({ label: `${node.name} · ${node.displayHost || "-"}:${node.port}`, value: `inbound:${node.resourceId}` })),
-        ...(data["access-nodes"] || []).map((node) => ({ label: `${node.name} · ${node.displayHost || "-"}:${node.port}（中转）`, value: `access:${node.resourceId}` })),
-      ], hint: "不勾选任何节点 = 该权限组可见全部节点" },
+      { name: "allowedAccessNodes", label: "节点数", type: "nodes", options: (data) => [
+        ...(data.inbounds || []).map((node) => ({ label: node.name || node.id, value: `inbound:${node.resourceId}` })),
+        ...(data["access-nodes"] || []).map((node) => ({ label: node.name || node.id, value: `access:${node.resourceId}` })),
+      ], hint: "勾选该权限组可订阅的节点；不勾选任何节点 = 可见全部节点" },
       { name: "speedLimitMbps", label: "限速 Mbps", type: "number", defaultValue: "" },
       { name: "enabled", label: "启用权限组", type: "checkbox", defaultValue: true },
     ],
@@ -1602,7 +1599,7 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       trafficQuota: formatBytes(raw.trafficLimitBytes),
       duration: values.durationDays ? `${values.durationDays} 天` : "不限",
       protocols: "AnyTLS",
-      accessNodes: `${resourceData["access-nodes"].length} 个`,
+      nodeCount: values.allowedAccessNodes?.length ? `${values.allowedAccessNodes.length} 个` : "全部",
       userCount: item?.userCount || "0",
       configVersion: version,
       createdAt: isoText(raw.createdAt),
@@ -1983,7 +1980,7 @@ function ResourceToolbar({ query, setQuery, searchPlaceholder, segments, segment
   );
 }
 
-function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onSelect }) {
+function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onSelect, onActions }) {
   const groupedRows = useMemo(() => {
     return rows.reduce((groups, row) => {
       if (!groups[row.group]) groups[row.group] = [];
@@ -2034,7 +2031,7 @@ function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onS
                     </td>
                   ))}
                   <td className="actions-cell">
-                    <IconButton label="更多操作">
+                    <IconButton label="更多操作" onClick={(event) => { event.stopPropagation(); onActions && onActions(row.id); }}>
                       <IconDotsVertical size={18} stroke={1.9} />
                     </IconButton>
                   </td>
@@ -2050,7 +2047,7 @@ function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onS
 
 function InspectorShell({ title, status, onClose, children }) {
   return (
-    <aside className="inspector">
+    <aside className="inspector" onMouseDown={(event) => event.stopPropagation()}>
       <div className="inspector__header">
         <div className="inspector__title-row">
           <h2>{title}</h2>
@@ -2181,7 +2178,7 @@ function Pagination({ total }) {
   );
 }
 
-function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, onCloseInspector, onEditSelected, onDeleteSelected, onResetSubscription, backendSettings }) {
+function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onResetSubscription, backendSettings }) {
   const PrimaryIcon = config.primaryIcon || IconPlus;
   const SecondaryIcon = config.secondaryIcon || IconPlus;
   const hasRows = rows.length > 0;
@@ -2190,25 +2187,27 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
   return (
     <div className="content-grid">
       <section className="main-pane">
-        <div className="page-header">
-          <div>
-            <h1>{config.title}</h1>
-            <p>{config.subtitle}</p>
+        {!embedded ? (
+          <div className="page-header">
+            <div>
+              <h1>{config.title}</h1>
+              <p>{config.subtitle}</p>
+            </div>
+            <div className="page-header__actions">
+              <button className="button button--secondary button--blue" type="button" onClick={onSecondary}>
+                <SecondaryIcon size={17} stroke={1.9} />
+                {config.secondaryAction}
+              </button>
+              <button className="button button--primary" type="button" onClick={onPrimary}>
+                <PrimaryIcon size={17} stroke={1.9} />
+                {config.primaryAction}
+              </button>
+              <IconButton label="刷新" variant="outline" onClick={onRefresh}>
+                <IconRefresh size={19} stroke={1.8} />
+              </IconButton>
+            </div>
           </div>
-          <div className="page-header__actions">
-            <button className="button button--secondary button--blue" type="button" onClick={onSecondary}>
-              <SecondaryIcon size={17} stroke={1.9} />
-              {config.secondaryAction}
-            </button>
-            <button className="button button--primary" type="button" onClick={onPrimary}>
-              <PrimaryIcon size={17} stroke={1.9} />
-              {config.primaryAction}
-            </button>
-            <IconButton label="刷新" variant="outline" onClick={onRefresh}>
-              <IconRefresh size={19} stroke={1.8} />
-            </IconButton>
-          </div>
-        </div>
+        ) : null}
         <ResourceToolbar
           query={state.query}
           setQuery={state.setQuery}
@@ -2220,7 +2219,14 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
         />
         {hasRows ? (
           <>
-            <ResourceTable ariaLabel={config.tableLabel} rows={rows} columns={config.columns} selectedId={selectedItem?.id} onSelect={onSelect} />
+            <ResourceTable
+              ariaLabel={config.tableLabel}
+              rows={rows}
+              columns={config.columns}
+              selectedId={selectedItem?.id}
+              onSelect={onSelect}
+              onActions={(id) => { onSelect(id); onOpenInspector && onOpenInspector(); }}
+            />
             <Pagination total={rows.length} />
           </>
         ) : (
@@ -2230,27 +2236,25 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
           />
         )}
       </section>
-      {selectedItem ? (
-        <GenericInspector
-          item={selectedItem}
-          config={config}
-          canWrite={canWrite}
-          onEdit={() => onEditSelected(selectedItem)}
-          onDelete={() => onDeleteSelected(selectedItem)}
-          onClose={onCloseInspector}
-          onResetSubscription={onResetSubscription}
-          backendSettings={backendSettings}
-        />
-      ) : (
-        <aside className="inspector inspector--empty">
-          <EmptyPanel compact title="暂无详情" description="选择一条记录后，这里会显示资源详情。" />
-        </aside>
-      )}
+      {inspectorOpen && selectedItem ? (
+        <div className="drawer-scrim" role="presentation" onMouseDown={onCloseInspector}>
+          <GenericInspector
+            item={selectedItem}
+            config={config}
+            canWrite={canWrite}
+            onEdit={() => onEditSelected(selectedItem)}
+            onDelete={() => onDeleteSelected(selectedItem)}
+            onClose={onCloseInspector}
+            onResetSubscription={onResetSubscription}
+            backendSettings={backendSettings}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
+function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("All");
   const [filterValues, setFilterValues] = useState(() => {
@@ -2259,11 +2263,12 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
   const rows = dataRows || [];
   const runtimeConfig = useMemo(() => resolveRuntimeResourceConfig(config, rows), [config, rows]);
   const canWrite = writableSections.has(sectionId);
-  const [selectedId, setSelectedId] = useState(rows[0]?.id || "");
+  const [selectedId, setSelectedId] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
 
   useEffect(() => {
-    if (!rows.find((row) => row.id === selectedId)) {
-      setSelectedId(rows[0]?.id || "");
+    if (selectedId && !rows.find((row) => row.id === selectedId)) {
+      setSelectedId("");
     }
   }, [rows, selectedId]);
 
@@ -2296,7 +2301,7 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
     });
   }, [runtimeConfig, rows, query, segment, filterValues]);
 
-  const selectedItem = filteredRows.find((item) => item.id === selectedId) || filteredRows[0];
+  const selectedItem = filteredRows.find((item) => item.id === selectedId);
 
   return (
     <ResourcePage
@@ -2306,7 +2311,10 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
       totalRows={rows.length}
       selectedItem={selectedItem}
       canWrite={canWrite}
+      embedded={embedded}
+      inspectorOpen={inspectorOpen}
       onSelect={setSelectedId}
+      onOpenInspector={() => setInspectorOpen(true)}
       onPrimary={() => {
         if (config.primaryKind === "relay") {
           setDrawerOpen(true);
@@ -2330,7 +2338,7 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
         showToast(`${config.secondaryAction}入口已准备`);
       }}
       onRefresh={onReload}
-      onCloseInspector={() => showToast("详情面板在桌面版保持固定")}
+      onCloseInspector={() => setInspectorOpen(false)}
       onEditSelected={(item) => item && onEdit(sectionId, item)}
       onDeleteSelected={(item) => item && onDelete(sectionId, item)}
       onResetSubscription={onResetSubscription}
@@ -2399,18 +2407,97 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
 }
 
 function AccessWorkspacePage(props) {
+  const [activeTab, setActiveTab] = useState("inbounds");
+  const { resourceData, ...routeProps } = props;
+
   return (
-    <ResourceWorkspacePage
-      {...props}
-      title="访问节点"
-      subtitle="节点即协议入站：添加节点后自动成为直连入口；中转入口需单独创建并自动生成转发规则"
-      initialTab="inbounds"
-      tabs={[
-        { id: "inbounds", label: "节点", icon: IconNetwork, sectionId: "inbounds" },
-        { id: "access", label: "中转入口", icon: IconRoute, sectionId: "access-nodes" },
-        { id: "relay-rules", label: "转发规则", icon: IconGitBranch, sectionId: "relay-rules" },
-      ]}
-    />
+    <div className="workspace-shell">
+      <section className="main-pane main-pane--wide">
+        <div className="page-header page-header--compact">
+          <div>
+            <h1>节点</h1>
+            <p>管理直连节点和中转链路：添加节点后自动下发到节点服务器；创建中转入口时自动生成转发规则</p>
+          </div>
+        </div>
+        <WorkspaceTabs
+          items={[
+            { id: "inbounds", label: "节点", icon: IconNetwork },
+            { id: "transit", label: "中转", icon: IconRoute },
+          ]}
+          activeId={activeTab}
+          onChange={setActiveTab}
+        />
+      </section>
+      {activeTab === "transit" ? (
+        <TransitPage {...props} />
+      ) : (
+        <ResourceRoute
+          key="inbounds"
+          sectionId="inbounds"
+          config={resourceConfigs.inbounds}
+          rows={resourceData.inbounds}
+          {...routeProps}
+        />
+      )}
+    </div>
+  );
+}
+
+function TransitPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings }) {
+  const routeProps = {
+    resourceData,
+    showToast,
+    setDrawerOpen,
+    onCreate,
+    onEdit,
+    onDelete,
+    onReload,
+    onGenerateBootstrap,
+    onResetSubscription,
+    backendSettings,
+  };
+
+  return (
+    <div className="transit-stack">
+      <section className="transit-panel">
+        <div className="transit-panel__header">
+          <div>
+            <h2>中转入口</h2>
+            <p>中转入口自动生成转发规则，将流量转发到指定节点</p>
+          </div>
+          <button className="button button--primary" type="button" onClick={() => setDrawerOpen(true)}>
+            <IconPlus size={17} stroke={1.9} />创建中转入口
+          </button>
+        </div>
+        <ResourceRoute
+          key="access-nodes"
+          sectionId="access-nodes"
+          config={resourceConfigs["access-nodes"]}
+          rows={resourceData["access-nodes"]}
+          {...routeProps}
+          embedded
+        />
+      </section>
+      <section className="transit-panel">
+        <div className="transit-panel__header">
+          <div>
+            <h2>转发规则</h2>
+            <p>中转服务器上的 Realm TCP/UDP 转发规则，随中转入口自动生成</p>
+          </div>
+          <button className="button button--secondary button--blue" type="button" onClick={() => onCreate("relay-rules")}>
+            <IconPlus size={17} stroke={1.9} />新建转发规则
+          </button>
+        </div>
+        <ResourceRoute
+          key="relay-rules"
+          sectionId="relay-rules"
+          config={resourceConfigs["relay-rules"]}
+          rows={resourceData["relay-rules"]}
+          {...routeProps}
+          embedded
+        />
+      </section>
+    </div>
   );
 }
 
@@ -2460,9 +2547,9 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
     { label: "中转", value: (resourceData["transit-relays"] || []).length },
   ];
   const accessCounts = [
-    { label: "访问入口", value: (resourceData["access-nodes"] || []).length },
-    { label: "协议入站", value: (resourceData.inbounds || []).length },
-    { label: "中转链路", value: (resourceData["relay-rules"] || []).length },
+    { label: "直连节点", value: (resourceData.inbounds || []).length },
+    { label: "中转入口", value: (resourceData["access-nodes"] || []).length },
+    { label: "转发规则", value: (resourceData["relay-rules"] || []).length },
   ];
   const alertCount = (resourceData.alerts || []).length;
   const auditCount = (resourceData["audit-logs"] || []).length;
@@ -2477,7 +2564,7 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
           </div>
           <div className="page-header__actions">
             <button className="button button--secondary button--blue" type="button" onClick={() => setActiveSection("servers")}><IconCloudComputing size={17} stroke={1.9} />服务器管理</button>
-            <button className="button button--primary" type="button" onClick={() => setActiveSection("access-nodes")}><IconNetwork size={17} stroke={1.9} />访问节点</button>
+            <button className="button button--primary" type="button" onClick={() => setActiveSection("access-nodes")}><IconNetwork size={17} stroke={1.9} />节点</button>
           </div>
         </div>
 
@@ -2518,7 +2605,7 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
           <section className="panel">
             <div className="panel__header">
               <h2>访问链路</h2>
-              <button className="subtle-link" type="button" onClick={() => setActiveSection("access-nodes")}>访问节点 <IconExternalLink size={14} stroke={1.9} /></button>
+              <button className="subtle-link" type="button" onClick={() => setActiveSection("access-nodes")}>节点 <IconExternalLink size={14} stroke={1.9} /></button>
             </div>
             <div className="insight-stack">
               {accessCounts.map((item) => (
@@ -2539,7 +2626,7 @@ function OverviewPage({ showToast, setActiveSection, resourceData, apiStatus }) 
             <div className="insight-kpis">
               <button type="button" onClick={() => setActiveSection("users")}><span>用户</span><strong>{(resourceData.users || []).length}</strong></button>
               <button type="button" onClick={() => setActiveSection("plans")}><span>权限组</span><strong>{(resourceData.plans || []).length}</strong></button>
-              <button type="button" onClick={() => setActiveSection("access-nodes")}><span>可见入口</span><strong>{(resourceData["access-nodes"] || []).length}</strong></button>
+              <button type="button" onClick={() => setActiveSection("access-nodes")}><span>中转入口</span><strong>{(resourceData["access-nodes"] || []).length}</strong></button>
             </div>
           </section>
 

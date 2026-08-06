@@ -940,7 +940,7 @@ export class JsonStore {
       entryHost: input.entryHost || null,
       transport,
       tags: asArray(input.tags),
-      groups: asArray(input.groups),
+      groups: input.groups?.length ? asArray(input.groups) : ["default"],
       config: defaultInboundConfig(protocol, input.config || {}, proxyNode)
     });
     this.state.nodeInbounds.push(record);
@@ -989,7 +989,7 @@ export class JsonStore {
       port: input.port ?? inbound.port,
       transport: normalizeTransport(input.transport, inbound.transport),
       tags: asArray(input.tags),
-      groups: asArray(input.groups)
+      groups: input.groups?.length ? asArray(input.groups) : ["default"]
     });
     this.state.accessNodes.push(record);
     return record;

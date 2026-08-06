@@ -86,7 +86,7 @@ const columns = {
     { key: "trafficUsed", label: "流量", width: "124px" },
     { key: "protocols", label: "协议", width: "104px" },
     { key: "subscription", label: "订阅", width: "72px" },
-    { key: "lastSeen", label: "最近使用", width: "90px" },
+    { key: "lastSeen", label: "最近使用", width: "150px" },
     { key: "configVersion", label: "版本", width: "52px" },
   ],
   plans: [
@@ -99,33 +99,33 @@ const columns = {
     { key: "configVersion", label: "版本", width: "52px" },
   ],
   access: [
-    { key: "id", label: "名称", primary: true, width: "190px", subKey: "summary" },
+    { key: "id", label: "名称", primary: true, width: "260px", subKey: "summary" },
     { key: "protocol", label: "协议", width: "54px" },
-    { key: "displayHost", label: "显示主机", width: "160px" },
+    { key: "displayHost", label: "显示主机", width: "200px" },
     { key: "region", label: "区域", width: "70px" },
     { key: "port", label: "端口", width: "54px" },
-    { key: "proxyNode", label: "代理服务器", width: "94px" },
-    { key: "transitRelay", label: "中转", width: "80px" },
+    { key: "proxyNode", label: "代理服务器", width: "110px" },
+    { key: "transitRelay", label: "中转", width: "96px" },
     { key: "visible", label: "可见", width: "48px", align: "center", render: () => <VisibleCheck /> },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "configVersion", label: "版本", width: "52px" },
   ],
   proxy: [
-    { key: "name", label: "节点", primary: true, width: "160px", subKey: "summary" },
-    { key: "host", label: "公网地址", width: "116px" },
+    { key: "name", label: "节点", primary: true, width: "200px", subKey: "summary" },
+    { key: "host", label: "公网地址", width: "150px" },
     { key: "region", label: "区域", width: "90px" },
     { key: "status", label: "Agent", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "agentVersion", label: "版本", width: "68px" },
     { key: "inbounds", label: "入站", width: "54px" },
-    { key: "accessNodes", label: "访问节点", width: "68px" },
+    { key: "accessNodes", label: "访问节点", width: "72px" },
     { key: "configVersion", label: "配置", width: "54px" },
-    { key: "heartbeat", label: "心跳", width: "80px" },
+    { key: "heartbeat", label: "心跳", width: "150px" },
   ],
   inbounds: [
-    { key: "name", label: "节点", primary: true, width: "176px", subKey: "summary" },
+    { key: "name", label: "节点", primary: true, width: "230px", subKey: "summary" },
     { key: "protocol", label: "协议", width: "112px" },
-    { key: "proxyNode", label: "代理服务器", width: "96px" },
-    { key: "displayHost", label: "直连地址", width: "150px" },
+    { key: "proxyNode", label: "代理服务器", width: "110px" },
+    { key: "displayHost", label: "直连地址", width: "200px" },
     { key: "port", label: "端口", width: "54px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "relayAccess", label: "中转入口", width: "68px" },
@@ -133,45 +133,45 @@ const columns = {
     { key: "configVersion", label: "版本", width: "52px" },
   ],
   relays: [
-    { key: "name", label: "中转服务器", primary: true, width: "158px", subKey: "summary" },
-    { key: "host", label: "公网地址", width: "150px" },
+    { key: "name", label: "中转服务器", primary: true, width: "200px", subKey: "summary" },
+    { key: "host", label: "公网地址", width: "170px" },
     { key: "region", label: "区域", width: "90px" },
     { key: "status", label: "Agent", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "rules", label: "规则", width: "54px" },
-    { key: "accessNodes", label: "访问节点", width: "68px" },
+    { key: "accessNodes", label: "访问节点", width: "72px" },
     { key: "tcp", label: "TCP", width: "54px" },
     { key: "udp", label: "UDP", width: "54px" },
-    { key: "heartbeat", label: "心跳", width: "80px" },
+    { key: "heartbeat", label: "心跳", width: "150px" },
   ],
   rules: [
-    { key: "name", label: "规则", primary: true, width: "166px", subKey: "summary" },
-    { key: "transitRelay", label: "中转", width: "98px" },
+    { key: "name", label: "规则", primary: true, width: "210px", subKey: "summary" },
+    { key: "transitRelay", label: "中转", width: "110px" },
     { key: "entryPort", label: "入口端口", width: "70px" },
-    { key: "targetHost", label: "目标", width: "96px" },
+    { key: "targetHost", label: "目标", width: "120px" },
     { key: "targetPort", label: "目标端口", width: "70px" },
     { key: "transport", label: "传输", width: "58px" },
-    { key: "accessNode", label: "Access Node", width: "128px" },
+    { key: "accessNode", label: "Access Node", width: "200px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
   ],
   edges: [
-    { key: "name", label: "入口", primary: true, width: "150px", subKey: "summary" },
-    { key: "host", label: "域名", width: "154px" },
+    { key: "name", label: "入口", primary: true, width: "190px", subKey: "summary" },
+    { key: "host", label: "域名", width: "180px" },
     { key: "region", label: "区域", width: "90px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "version", label: "版本", width: "66px" },
-    { key: "certificate", label: "证书", width: "110px" },
-    { key: "backend", label: "后端", width: "112px" },
-    { key: "heartbeat", label: "心跳", width: "80px" },
+    { key: "certificate", label: "证书", width: "130px" },
+    { key: "backend", label: "后端", width: "130px" },
+    { key: "heartbeat", label: "心跳", width: "150px" },
   ],
   subscriptionEdges: [
-    { key: "name", label: "订阅服务器", primary: true, width: "150px", subKey: "summary" },
-    { key: "host", label: "域名", width: "154px" },
+    { key: "name", label: "订阅服务器", primary: true, width: "190px", subKey: "summary" },
+    { key: "host", label: "域名", width: "180px" },
     { key: "region", label: "区域", width: "90px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "cacheTtl", label: "缓存", width: "76px" },
     { key: "rateLimit", label: "限速", width: "90px" },
     { key: "policies", label: "策略", width: "62px" },
-    { key: "lastAccess", label: "最近访问", width: "90px" },
+    { key: "lastAccess", label: "最近访问", width: "150px" },
   ],
   policies: [
     { key: "name", label: "策略", primary: true, width: "150px", subKey: "summary" },
@@ -183,13 +183,13 @@ const columns = {
     { key: "userAgentRule", label: "客户端", width: "86px" },
   ],
   agents: [
-    { key: "name", label: "Agent", primary: true, width: "170px", subKey: "summary" },
-    { key: "role", label: "角色", width: "106px" },
-    { key: "boundResource", label: "绑定资源", width: "118px" },
+    { key: "name", label: "Agent", primary: true, width: "220px", subKey: "summary" },
+    { key: "role", label: "角色", width: "130px" },
+    { key: "boundResource", label: "绑定资源", width: "360px" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "version", label: "版本", width: "66px" },
-    { key: "capabilities", label: "能力", width: "130px" },
-    { key: "heartbeat", label: "心跳", width: "82px" },
+    { key: "capabilities", label: "能力", width: "240px" },
+    { key: "heartbeat", label: "心跳", width: "150px" },
     { key: "configVersion", label: "配置", width: "54px" },
   ],
   releases: [
@@ -198,7 +198,7 @@ const columns = {
     { key: "changedResources", label: "变更资源", width: "220px" },
     { key: "agents", label: "Agent", width: "100px" },
     { key: "publishedBy", label: "发布人", width: "72px" },
-    { key: "publishedAt", label: "发布时间", width: "136px" },
+    { key: "publishedAt", label: "发布时间", width: "160px" },
     { key: "failedReason", label: "失败原因", width: "120px" },
   ],
   health: [
@@ -207,16 +207,16 @@ const columns = {
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "latency", label: "延迟", width: "72px" },
     { key: "successRate", label: "成功率", width: "76px" },
-    { key: "lastCheck", label: "最近检查", width: "90px" },
-    { key: "nextCheck", label: "下次检查", width: "90px" },
+    { key: "lastCheck", label: "最近检查", width: "150px" },
+    { key: "nextCheck", label: "下次检查", width: "150px" },
   ],
   alerts: [
     { key: "name", label: "告警", primary: true, width: "158px", subKey: "summary" },
     { key: "status", label: "状态", width: "76px", render: (row) => <StatePill>{row.status}</StatePill> },
     { key: "severity", label: "级别", width: "76px" },
     { key: "resourceType", label: "资源类型", width: "118px" },
-    { key: "resourceName", label: "资源名称", width: "150px" },
-    { key: "openedAt", label: "触发时间", width: "136px" },
+    { key: "resourceName", label: "资源名称", width: "360px" },
+    { key: "openedAt", label: "触发时间", width: "160px" },
     { key: "assignee", label: "处理人", width: "72px" },
   ],
   traffic: [
@@ -227,24 +227,24 @@ const columns = {
     { key: "upload", label: "上传", width: "74px" },
     { key: "download", label: "下载", width: "82px" },
     { key: "peak", label: "峰值", width: "82px" },
-    { key: "updatedAt", label: "更新", width: "82px" },
+    { key: "updatedAt", label: "更新", width: "150px" },
   ],
   domains: [
-    { key: "name", label: "域名", primary: true, width: "166px", subKey: "summary" },
+    { key: "name", label: "域名", primary: true, width: "200px", subKey: "summary" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
-    { key: "owner", label: "所属入口", width: "112px" },
+    { key: "owner", label: "所属入口", width: "150px" },
     { key: "provider", label: "DNS", width: "96px" },
     { key: "certificate", label: "证书", width: "112px" },
-    { key: "expiresAt", label: "到期", width: "96px" },
+    { key: "expiresAt", label: "到期", width: "150px" },
     { key: "autoRenew", label: "自动续期", width: "76px" },
   ],
   audit: [
-    { key: "id", label: "日志", primary: true, width: "166px", subKey: "summary" },
-    { key: "time", label: "时间", width: "136px" },
+    { key: "id", label: "日志", primary: true, width: "200px", subKey: "summary" },
+    { key: "time", label: "时间", width: "160px" },
     { key: "actor", label: "操作人", width: "70px" },
-    { key: "action", label: "动作", width: "88px" },
+    { key: "action", label: "动作", width: "200px" },
     { key: "resourceType", label: "资源类型", width: "112px" },
-    { key: "resourceName", label: "资源名称", width: "146px" },
+    { key: "resourceName", label: "资源名称", width: "360px" },
     { key: "sourceIp", label: "来源 IP", width: "112px" },
     { key: "status", label: "结果", width: "70px", render: (row) => <StatePill>{row.status}</StatePill> },
   ],
@@ -255,7 +255,7 @@ const columns = {
     { key: "size", label: "大小", width: "70px" },
     { key: "storage", label: "存储", width: "154px" },
     { key: "checksum", label: "校验", width: "118px" },
-    { key: "finishedAt", label: "完成时间", width: "136px" },
+    { key: "finishedAt", label: "完成时间", width: "160px" },
   ],
 };
 
@@ -2023,11 +2023,13 @@ function ResourceTable({ ariaLabel, rows, columns: tableColumns, selectedId, onS
                   {tableColumns.map((column) => (
                     <td className={column.align === "center" ? "center-cell" : ""} data-label={column.label} key={column.key}>
                       {column.primary ? (
-                        <button className="name-button" type="button">
+                        <button className="name-button" type="button" title={row[column.subKey] ? `${row[column.key]}\n${row[column.subKey]}` : String(row[column.key] ?? "")}>
                           <span>{row[column.key]}</span>
                           <small>{row[column.subKey]}</small>
                         </button>
-                      ) : column.render ? column.render(row) : row[column.key]}
+                      ) : column.render ? column.render(row) : (
+                        <span title={typeof row[column.key] === "string" ? row[column.key] : undefined}>{row[column.key]}</span>
+                      )}
                     </td>
                   ))}
                   <td className="actions-cell">
@@ -2178,19 +2180,20 @@ function Pagination({ total }) {
   );
 }
 
-function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onResetSubscription, backendSettings }) {
+function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, headerLevel = "h1", inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onResetSubscription, backendSettings }) {
   const PrimaryIcon = config.primaryIcon || IconPlus;
   const SecondaryIcon = config.secondaryIcon || IconPlus;
   const hasRows = rows.length > 0;
   const isEmptyCollection = totalRows === 0;
+  const HeadingTag = headerLevel === "h2" ? "h2" : "h1";
 
   return (
     <div className="content-grid">
       <section className="main-pane">
         {!embedded ? (
-          <div className="page-header">
+          <div className={headerLevel === "h2" ? "page-header page-header--panel" : "page-header"}>
             <div>
-              <h1>{config.title}</h1>
+              <HeadingTag>{config.title}</HeadingTag>
               <p>{config.subtitle}</p>
             </div>
             <div className="page-header__actions">
@@ -2254,7 +2257,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
   );
 }
 
-function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false }) {
+function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false, headerLevel = "h1" }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("All");
   const [filterValues, setFilterValues] = useState(() => {
@@ -2312,6 +2315,7 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
       selectedItem={selectedItem}
       canWrite={canWrite}
       embedded={embedded}
+      headerLevel={headerLevel}
       inspectorOpen={inspectorOpen}
       onSelect={setSelectedId}
       onOpenInspector={() => setInspectorOpen(true)}
@@ -2392,6 +2396,7 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
         sectionId={sectionId}
         config={config}
         rows={resourceData[sectionId]}
+        headerLevel="h2"
         showToast={showToast}
         setDrawerOpen={setDrawerOpen}
         onCreate={onCreate}
@@ -2436,6 +2441,7 @@ function AccessWorkspacePage(props) {
           sectionId="inbounds"
           config={resourceConfigs.inbounds}
           rows={resourceData.inbounds}
+          headerLevel="h2"
           {...routeProps}
         />
       )}

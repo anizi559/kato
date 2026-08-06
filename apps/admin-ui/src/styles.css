@@ -566,7 +566,7 @@ a {
 .name-button {
   display: grid;
   gap: 3px;
-  max-width: 150px;
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -576,6 +576,7 @@ a {
 .name-button span {
   color: #075bd8;
   font-weight: 650;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -584,6 +585,9 @@ a {
   color: var(--muted);
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .visible-check {
@@ -707,7 +711,7 @@ a {
 
 .inspector h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 0;
   color: #101828;
@@ -1391,6 +1395,18 @@ a {
   margin-bottom: 14px;
 }
 
+.page-header--panel {
+  margin-bottom: 16px;
+}
+
+.page-header--panel h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #111827;
+}
+
 .workspace-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1566,6 +1582,7 @@ a {
   margin: 0;
   color: #172033;
   font-size: 15px;
+  line-height: 1.4;
 }
 
 .setting-divider {

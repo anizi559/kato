@@ -11,7 +11,7 @@ set -euo pipefail
 # 提醒：命令参数保持英文是为了兼容脚本和自动化；所有说明、提示和生成配置都尽量使用中文。
 
 APP_NAME="kato"
-APP_VERSION="0.10.0"
+APP_VERSION="1.0.0"
 DEFAULT_INSTALL_ROOT="/opt/kato"
 DEFAULT_REPO_URL="https://github.com/anizi559/kato.git"
 DEFAULT_NODE_VERSION="22.16.0"
@@ -24,6 +24,7 @@ repo_url="${KATO_REPO_URL:-}"
 install_root="${KATO_INSTALL_ROOT:-$DEFAULT_INSTALL_ROOT}"
 node_version="${KATO_NODE_VERSION:-$DEFAULT_NODE_VERSION}"
 realm_version="${KATO_REALM_VERSION:-$DEFAULT_REALM_VERSION}"
+singbox_binary_url="${KATO_SINGBOX_BINARY_URL:-}"
 apt_mirror="${KATO_APT_MIRROR:-}"
 skip_deps="false"
 skip_source_sync="false"
@@ -98,6 +99,7 @@ Kato 控制面板一键安装脚本 ${APP_VERSION}
   --skip-deps                    跳过系统依赖和 Node.js 安装
   --skip-source-sync             直接使用当前源码目录，不复制到安装目录
   --force-runtime-binaries       重新下载 sing-box / Realm；升级模式默认开启
+  --singbox-url <url>            覆盖 sing-box 下载地址（例如自编译带 V2Ray API 的二进制）
   --non-interactive              非交互模式；缺少必要参数时直接失败，不弹菜单
 
 HTTPS / 证书参数（前端和后端均可使用）：
@@ -428,6 +430,10 @@ while [[ $# -gt 0 ]]; do
     --force-runtime-binaries)
       force_runtime_binaries="true"
       shift
+      ;;
+    --singbox-url)
+      singbox_binary_url="${2:-}"
+      shift 2
       ;;
     --non-interactive)
       non_interactive="true"
@@ -1886,13 +1892,21 @@ install_singbox() {
     aarch64|arm64) arch="arm64" ;;
     *) die "不支持的 sing-box 架构：$(uname -m)" ;;
   esac
-  version="${KATO_SINGBOX_VERSION:-$(github_latest_tag SagerNet/sing-box)}"
+  tmp="$(mktemp -d)"
+  if [[ -n "$singbox_binary_url" ]]; then
+    log "正在从自定义地址安装 sing-box：${singbox_binary_url}"
+    curl -fsSL --retry 3 -o "${tmp}/sing-box" "$singbox_binary_url"
+    install -m 0755 "${tmp}/sing-box" /usr/local/bin/sing-box
+    rm -rf "$tmp"
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/sing-box || warn "给 sing-box 设置低端口权限失败；如果监听 80/443 失败，请手动检查 setcap"
+    return
+  fi
+  version="${KATO_SINGBOX_VERSION:-$(github_latest_tag shtorm-7/sing-box-extended)}"
   version="${version#v}"
   [[ -n "$version" ]] || die "无法获取最新 sing-box 版本"
   asset="sing-box-${version}-linux-${arch}.tar.gz"
-  tmp="$(mktemp -d)"
   log "正在安装 sing-box ${version}"
-  curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
+  curl -fsSL --retry 3 -o "${tmp}/${asset}" "https://github.com/shtorm-7/sing-box-extended/releases/download/v${version}/${asset}"
   tar -xzf "${tmp}/${asset}" -C "$tmp"
   find "$tmp" -maxdepth 2 -type f -name sing-box -exec install -m 0755 {} /usr/local/bin/sing-box \;
   rm -rf "$tmp"
@@ -1960,7 +1974,7 @@ const config = {
     bootstrapToken: "首次注册用的一次性 token。注册成功后会写入 statePath，之后可留空。",
     statePath: "节点注册状态文件，包含 agentId 和密钥，请勿泄露。",
     lastKnownGoodPath: "最后一次成功获取的配置。后端断联时，节点会用它继续运行。",
-    runtimeDir: "渲染后的 Xray / Hysteria2 / Realm 配置目录。",
+    runtimeDir: "渲染后的 sing-box / Realm 配置目录。",
     backupDir: "历史配置备份目录。",
     logDir: "运行日志目录。",
     binaryValidation: "是否在应用配置前调用运行程序做配置校验。",

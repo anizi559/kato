@@ -55,7 +55,7 @@ function runtimeConfig(dir) {
     processDir: join(dir, "processes"),
     logDir: join(dir, "logs"),
     binaries: {
-      hysteria: "hysteria",
+      singbox: "sing-box",
       realm: resolve("tools/bin/realm")
     }
   };

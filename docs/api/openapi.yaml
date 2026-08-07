@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Kato Backend Core API
-  version: 0.3.6
+  version: 1.0.0
 servers:
   - url: http://127.0.0.1:8080
 paths:
@@ -110,6 +110,114 @@ paths:
       responses:
         "200":
           description: Agent list
+  /api/v1/admin/settings:
+    get:
+      summary: Read backend settings
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      responses:
+        "200":
+          description: Settings
+    patch:
+      summary: Update backend settings
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated settings
+  /api/v1/admin/traffic-summary:
+    get:
+      summary: User traffic summary and today traffic
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      responses:
+        "200":
+          description: Traffic summary
+  /api/v1/admin/alerts:
+    get:
+      summary: List alerts
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      responses:
+        "200":
+          description: Alerts
+  /api/v1/admin/audit-logs:
+    get:
+      summary: List audit logs
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      responses:
+        "200":
+          description: Audit logs
+  /api/v1/admin/users/{id}/subscription-token:
+    post:
+      summary: Rotate user subscription token and AnyTLS password
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User with rotated credentials
+  /api/v1/admin/anytls-certs/issue:
+    post:
+      summary: Issue random subdomain and Let's Encrypt certificate for an AnyTLS node
+      security:
+        - AdminToken: []
+        - FrontendToken: []
+          AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - proxyNodeId
+                - domain
+      responses:
+        "201":
+          description: Certificate issued
+  /api/v1/admin/me/password:
+    post:
+      summary: Change current admin password
+      security:
+        - FrontendToken: []
+          AdminSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+      responses:
+        "200":
+          description: Password changed
   /api/v1/admin/{collection}:
     get:
       summary: List admin resources
@@ -317,6 +425,50 @@ paths:
       responses:
         "200":
           description: Report accepted
+  /api/v1/agents/{agentId}/reports/traffic:
+    post:
+      summary: Report traffic deltas (node inbound / per-user / relay entry)
+      security:
+        - AgentBearer: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reports
+              properties:
+                reports:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      kind:
+                        type: string
+                        enum: [node, relay]
+                      inboundId:
+                        type: string
+                      userId:
+                        type: string
+                      entryPort:
+                        type: integer
+                      uploadBytes:
+                        type: integer
+                      downloadBytes:
+                        type: integer
+                reportedAt:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Traffic accepted
 components:
   parameters:
     AdminCollection:
@@ -333,6 +485,8 @@ components:
           - transit-relays
           - access-nodes
           - relay-rules
+          - frontend-edges
+          - subscription-edges
     ResourceId:
       name: id
       in: path

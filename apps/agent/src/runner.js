@@ -69,8 +69,6 @@ async function reportTrafficAndSave(config, state, client) {
   if (!trafficReport) {
     return;
   }
-  const nextState = { ...state, lastTraffic: trafficReport.counter };
-  await writeJsonFile(config.statePath, nextState);
   if (trafficReport.reports.length) {
     await safeCall(
       () => client.reportTraffic({
@@ -80,6 +78,8 @@ async function reportTrafficAndSave(config, state, client) {
       "traffic report"
     );
   }
+  const nextState = { ...state, lastTraffic: trafficReport.counter };
+  await writeJsonFile(config.statePath, nextState);
 }
 
 export async function runOffline(config, error) {

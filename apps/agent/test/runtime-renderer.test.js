@@ -21,6 +21,54 @@ test("proxy-node runtime renderer emits sing-box anytls config", () => {
   assert.equal(renderSingboxConfig(proxyDesired().desiredState.inbounds).outbounds[0].type, "direct");
 });
 
+test("runtime renderer emits per-user bandwidth limiters from user limits", () => {
+  const desired = proxyDesired();
+  desired.desiredState.inbounds[0].users[0].limits = { rateMbps: 10 };
+  const config = renderSingboxConfig(desired.desiredState.inbounds);
+
+  const limiter = config.outbounds.find((outbound) => outbound.type === "bandwidth-limiter");
+  assert.ok(limiter);
+  assert.equal(limiter.tag, "bw-user_1");
+  assert.equal(limiter.strategy, "global");
+  assert.equal(limiter.mode, "bidirectional");
+  assert.equal(limiter.speed, 1250000);
+  assert.equal(limiter.route.final, "direct");
+  assert.deepEqual(config.route.rules, [
+    { auth_user: ["user_1"], outbound: "bw-user_1" }
+  ]);
+  assert.equal(config.route.final, "direct");
+});
+
+test("runtime renderer emits single inbound with all users and v2ray stats", () => {
+  const desired = proxyDesired();
+  desired.desiredState.inbounds[0].users.push({
+    userId: "user_2",
+    name: "bob",
+    credential: {
+      type: "anytls",
+      password: "anytls_secret_2"
+    }
+  });
+  const config = renderSingboxConfig(desired.desiredState.inbounds);
+
+  assert.equal(config.inbounds.length, 1);
+  assert.equal(config.inbounds[0].listen_port, 8443);
+  assert.deepEqual(
+    config.inbounds[0].users.map((user) => user.name),
+    ["user_1", "user_2"]
+  );
+  assert.equal(config.experimental.v2ray_api.stats.enabled, true);
+  assert.deepEqual(config.experimental.v2ray_api.stats.users, ["user_1", "user_2"]);
+  assert.equal(config.experimental.v2ray_api.listen, "127.0.0.1:19091");
+  assert.doesNotThrow(() => validateRenderedBundle(renderRuntimeBundle(desired)));
+});
+
+test("runtime renderer keeps plain direct config when no user has rate limits", () => {
+  const config = renderSingboxConfig(proxyDesired().desiredState.inbounds);
+  assert.equal(config.route, undefined);
+  assert.deepEqual(config.outbounds, [{ type: "direct", tag: "direct" }]);
+});
+
 test("transit-relay runtime renderer emits realm config", () => {
   const bundle = renderRuntimeBundle(relayDesired());
   const realm = bundle.files.find((file) => file.component === "realm");

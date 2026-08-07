@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { PROTOCOLS, nowIso } from "../../../packages/shared/src/protocol.js";
-import { compileDesiredState } from "./desired-state.js";
+import { compileDesiredState, isUserActive } from "./desired-state.js";
 import { createId, createSecret, hashPassword, sha256, verifyPassword } from "./security.js";
 import { probeEndpoint } from "./health.js";
 
@@ -362,12 +362,19 @@ export class JsonStore {
       const user = this.state.users.find((item) => item.id === report?.userId);
       if (user) {
         const plan = user.planId ? this.state.plans.find((item) => item.id === user.planId) : null;
+        const trafficLimitBytes = user.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null;
+        const wasOverQuota = Boolean(trafficLimitBytes && Number(user.usedTrafficBytes || 0) >= Number(trafficLimitBytes));
         if (shouldResetUsage(user, plan, now)) {
           user.usedTrafficBytes = 0;
           user.lastUsageResetAt = now;
         }
         user.usedTrafficBytes = (user.usedTrafficBytes || 0) + uploadBytes + downloadBytes;
         user.lastProxyUseAt = now;
+        const nowOverQuota = Boolean(trafficLimitBytes && Number(user.usedTrafficBytes) >= Number(trafficLimitBytes));
+        if (wasOverQuota !== nowOverQuota) {
+          // 跨过流量阈值时发布新配置（移除用户断流，或把限速改为 1Mbps）
+          this.touchConfig();
+        }
       }
       addedBytes += uploadBytes + downloadBytes;
       if (user) {
@@ -521,6 +528,10 @@ export class JsonStore {
       if (!host || host === "0.0.0.0" || host === "::") {
         continue;
       }
+      const hasActiveUser = this.state.users.some((user) => isUserActive(user, this.state));
+      if (!hasActiveUser) {
+        continue;
+      }
       targets.push({
         kind: "inbound",
         resource: inbound,
@@ -556,11 +567,18 @@ export class JsonStore {
       if (!host || host === "0.0.0.0" || host === "::") {
         continue;
       }
+      if (!rule.entry?.port) {
+        continue;
+      }
+      const hasActiveUser = this.state.users.some((user) => isUserActive(user, this.state));
+      if (!hasActiveUser) {
+        continue;
+      }
       targets.push({
         kind: "relay-rule",
         resource: rule,
         host,
-        port: rule.entry?.port,
+        port: rule.entry.port,
         protocol: rule.transport || "tcp"
       });
     }
@@ -755,6 +773,21 @@ export class JsonStore {
       this.syncRelayRuleFromAccessNode(record);
     }
 
+    if (collection === "plans" && Object.hasOwn(normalizedPatch, "speedLimitMbps")) {
+      for (const user of this.state.users) {
+        if (user.planId === id) {
+          user.limits = {
+            ...user.limits,
+            rateMbps: normalizedPatch.speedLimitMbps
+          };
+        }
+      }
+    }
+
+    if (collection === "plans" && Object.hasOwn(normalizedPatch, "overQuotaPolicy")) {
+      normalizedPatch.overQuotaPolicy = normalizeOverQuotaPolicy(normalizedPatch.overQuotaPolicy);
+    }
+
     this.touchConfig();
     this.recordAudit(`${collection}.updated`, id, { collection });
     await this.save();
@@ -800,10 +833,28 @@ export class JsonStore {
   async deleteResource(collection, id, options = {}) {
     const record = this.requireResource(collection, id);
     this.deleteResourceRecord(collection, id, options);
+    if (["proxy-nodes", "node-inbounds", "access-nodes", "transit-relays"].includes(collection)) {
+      this.pruneNodeReferences();
+    }
     this.touchConfig();
     this.recordAudit(`${collection}.deleted`, id, { collection, name: record.name });
     await this.save();
     return { ok: true, deleted: clone(record) };
+  }
+
+  pruneNodeReferences() {
+    const valid = new Set([
+      ...this.state.nodeInbounds.map((inbound) => `inbound:${inbound.id}`),
+      ...this.state.accessNodes.map((accessNode) => `access:${accessNode.id}`)
+    ]);
+    for (const plan of this.state.plans) {
+      plan.allowedAccessNodes = (plan.allowedAccessNodes || []).filter((id) => valid.has(id));
+    }
+    for (const user of this.state.users) {
+      if (Array.isArray(user.access?.accessNodes)) {
+        user.access.accessNodes = user.access.accessNodes.filter((id) => valid.has(id));
+      }
+    }
   }
 
   createResourceRecord(collection, input) {
@@ -856,6 +907,7 @@ export class JsonStore {
       nodeSortPolicy: input.nodeSortPolicy || "manual",
       resetPolicy: input.resetPolicy || "none",
       speedLimitMbps: input.speedLimitMbps ?? null,
+      overQuotaPolicy: normalizeOverQuotaPolicy(input.overQuotaPolicy),
       hysteria2: {
         upMbps: input.hysteria2?.upMbps ?? 100,
         downMbps: input.hysteria2?.downMbps ?? 100
@@ -1309,6 +1361,7 @@ function normalizeState(rawState) {
     if (!user.credentials.anytlsPassword) {
       user.credentials.anytlsPassword = createSecret("anytls");
     }
+    delete user.anytlsPort;
     if (!user.access) {
       user.access = { nodeGroups: [], relayGroups: [], protocols: [], regions: [] };
     }
@@ -1369,6 +1422,20 @@ function normalizeState(rawState) {
       .map((id) => permissionMap.get(id) || id)
       .filter(Boolean);
   }
+
+  // 清理指向已删除节点的残留引用，避免“幽灵 ID”让节点计数虚高
+  const validNodeIds = new Set([
+    ...state.nodeInbounds.map((inbound) => `inbound:${inbound.id}`),
+    ...state.accessNodes.map((accessNode) => `access:${accessNode.id}`)
+  ]);
+  for (const plan of state.plans) {
+    plan.allowedAccessNodes = (plan.allowedAccessNodes || []).filter((id) => validNodeIds.has(id));
+  }
+  for (const user of state.users) {
+    if (Array.isArray(user.access?.accessNodes)) {
+      user.access.accessNodes = user.access.accessNodes.filter((id) => validNodeIds.has(id));
+    }
+  }
   return state;
 }
 
@@ -1412,6 +1479,14 @@ function normalizeInboundProtocol(protocol) {
     throw httpError(`Unsupported inbound protocol: ${protocol}`, 400);
   }
   return protocol;
+}
+
+function normalizeOverQuotaPolicy(value) {
+  const policy = String(value || "disconnect");
+  if (!["disconnect", "throttle"].includes(policy)) {
+    throw httpError("Unsupported overQuotaPolicy: must be disconnect or throttle", 400);
+  }
+  return policy;
 }
 
 function normalizeTransport(value, fallback = "tcp") {

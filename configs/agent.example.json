@@ -8,7 +8,7 @@
     "statePath": "节点注册状态文件，里面有 agentId 和密钥，请勿泄露。",
     "lastKnownGoodPath": "最后一次成功下发的配置。后端断联时节点会继续使用它提供服务。",
     "renderedConfigPath": "Agent 渲染出的完整运行配置预览。",
-    "runtimeDir": "Xray / Hysteria2 / Realm 等运行配置的落盘目录。",
+    "runtimeDir": "sing-box / Realm 等运行配置的落盘目录。",
     "backupDir": "旧配置备份目录。",
     "processDir": "托管运行进程的状态目录。",
     "logDir": "节点运行日志目录。",
@@ -30,8 +30,7 @@
   "binaryValidation": false,
   "autoStart": false,
   "binaries": {
-    "xray": "xray",
-    "hysteria": "hysteria",
-    "realm": "tools/bin/realm"
+    "realm": "realm",
+    "singbox": "sing-box"
   }
 }

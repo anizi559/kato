@@ -350,7 +350,7 @@ test("admin crud lifecycle keeps relay access and relay rules in sync", async ()
     });
     const relayBundle = await adminPost(app, "access-nodes/relay", {
       name: "HK Lifecycle Relay",
-      relayRuleName: "relay-lifecycle-vless-8443",
+      relayRuleName: "relay-lifecycle-anytls-8443",
       inboundId: inbound.id,
       transitRelayId: relay.id,
       entryPort: 8443,

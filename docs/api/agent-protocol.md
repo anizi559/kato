@@ -1,4 +1,4 @@
-# Agent Protocol v0.3
+# Agent Protocol v1.0
 
 ## Roles
 
@@ -38,7 +38,7 @@ Content-Type: application/json
 ```json
 {
   "bootstrapToken": "boot_xxx",
-  "agentVersion": "0.3.6",
+  "agentVersion": "1.0.0",
   "hostname": "hk-01",
   "capabilities": {
     "lastKnownGood": true,
@@ -56,7 +56,7 @@ Content-Type: application/json
   "agentSecret": "agent_xxx",
   "role": "proxy-node",
   "name": "hk-01",
-  "backendVersion": "0.3.6"
+  "backendVersion": "1.0.0"
 }
 ```
 
@@ -81,14 +81,15 @@ If-None-Match: "<etag>"
 Proxy Node 返回的 `desiredState` 主要包含：
 
 - `proxyNode`
-- `inbounds`
+- `inbounds`（每个 AnyTLS 入站一个端口 + 全部活跃用户）
 - `accessNodes`
+- `certificates`
 - `runtime`
 
 Transit Relay 返回的 `desiredState` 主要包含：
 
 - `relay`
-- `relayRules`
+- `relayRules`（固定端口，不再按用户展开）
 - `runtime`
 
 ## Runtime Apply
@@ -96,15 +97,14 @@ Transit Relay 返回的 `desiredState` 主要包含：
 Agent 拉取到新的 desired-state 后，会渲染并落盘运行配置：
 
 - Proxy Node:
-  - `xray/config.json`
-  - `hysteria2/<inbound-id>.yaml`
+  - `singbox/config.json`（AnyTLS 单端口多用户 + V2Ray API + bandwidth-limiter）
 - Transit Relay:
   - `realm/config.json`
 
-默认写入 `runtimeDir`，旧配置会备份到 `backupDir`。当 `binaryValidation=true` 时，Agent 会对 Xray 配置执行：
+默认写入 `runtimeDir`，旧配置会备份到 `backupDir`。当 `binaryValidation=true` 时，Agent 会对 sing-box 配置执行：
 
 ```bash
-xray run -test -c <runtime>/xray/config.json
+sing-box check -c <runtime>/singbox/config.json
 ```
 
 Agent 默认只渲染并落盘运行配置。设置 `autoStart=true` 后，配置变更会触发托管进程重启；Backend Core 不可用时，Agent 会使用最后一次成功拉取的 last known good 配置继续渲染，并尽量保持托管进程启动。
@@ -120,7 +120,7 @@ node apps/agent/src/main.js status
 node apps/agent/src/main.js ports
 ```
 
-本地测试已覆盖 Hysteria2 短生命周期启动、Realm 短生命周期启动和 Realm TCP 转发。
+本地测试已覆盖 sing-box / Realm 短生命周期启动和 Realm TCP 转发。
 
 ## Config Applied Report
 
@@ -137,3 +137,25 @@ Content-Type: application/json
   "appliedAt": "2026-06-15T00:00:00.000Z"
 }
 ```
+
+## Traffic Report
+
+```http
+POST /api/v1/agents/:agentId/reports/traffic
+Authorization: Bearer <agent-secret>
+Content-Type: application/json
+```
+
+```json
+{
+  "reportedAt": "2026-08-07T12:00:00.000Z",
+  "reports": [
+    { "kind": "node", "inboundId": "inbound:inbound_xxx", "uploadBytes": 1024, "downloadBytes": 2048 },
+    { "kind": "node", "userId": "user_xxx", "uploadBytes": 512, "downloadBytes": 1024 },
+    { "kind": "relay", "entryPort": 18444, "uploadBytes": 1024, "downloadBytes": 2048 }
+  ]
+}
+```
+
+- 代理节点：`kind: node` 的 nftables 端口聚合上报（`inboundId`）+ V2Ray API 按用户上报（`userId`）。
+- 中转服务器：`kind: relay` 按入口端口聚合上报（`entryPort`），不携带 `userId`，避免重复计数。

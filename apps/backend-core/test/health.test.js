@@ -50,9 +50,12 @@ test("health probes mark access nodes ok and failed with alerts", async () => {
     });
     const inbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: proxyNode.id,
-      name: "Probe VLESS",
+      name: "Probe AnyTLS",
       protocol: PROTOCOLS.ANYTLS,
       port: tcp.port
+    });
+    const user = await adminPost(app, "users", {
+      name: "probe-user"
     });
     const first = await app.store.runHealthProbes();
     assert.equal(first.probed, 1);
@@ -87,7 +90,7 @@ test("health probes cover relay rules", async () => {
     });
     const inbound = await adminPost(app, "node-inbounds", {
       proxyNodeId: proxyNode.id,
-      name: "Probe Relay VLESS",
+      name: "Probe Relay AnyTLS",
       protocol: PROTOCOLS.ANYTLS,
       port: 443
     });
@@ -101,6 +104,9 @@ test("health probes cover relay rules", async () => {
       transitRelayId: relay.id,
       entryPort: tcp.port,
       transport: "tcp"
+    });
+    const user = await adminPost(app, "users", {
+      name: "probe-relay-user"
     });
 
     const result = await app.store.runHealthProbes();
@@ -120,6 +126,16 @@ async function adminPost(app, path, body) {
     body
   });
   assert.equal(result.status, 201);
+  return result.body;
+}
+
+async function adminPatch(app, path, body) {
+  const result = await requestJson(app, `/api/v1/admin/${path}`, {
+    method: "PATCH",
+    admin: true,
+    body
+  });
+  assert.equal(result.status, 200);
   return result.body;
 }
 

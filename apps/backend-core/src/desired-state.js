@@ -45,7 +45,7 @@ function buildProxyNodeState(agent, state) {
     proxyNode && proxyNode.enabled
       ? state.nodeInbounds
           .filter((inbound) => inbound.proxyNodeId === proxyNode.id && inbound.enabled)
-          .map((inbound) => renderInbound(inbound, state))
+          .flatMap((inbound) => renderInbound(inbound, state))
       : [];
   const accessNodes =
     proxyNode && proxyNode.enabled
@@ -81,8 +81,12 @@ function buildTransitRelayState(agent, state) {
 }
 
 function renderInbound(inbound, state) {
-  return {
-    id: inbound.id,
+  const activeUsers = activeUsersForProtocol(inbound.protocol, state);
+  if (!activeUsers.length) {
+    return [];
+  }
+  return [{
+    id: `inbound:${inbound.id}`,
     proxyNodeId: inbound.proxyNodeId,
     name: inbound.name,
     protocol: inbound.protocol,
@@ -92,8 +96,8 @@ function renderInbound(inbound, state) {
     tags: inbound.tags,
     groups: inbound.groups,
     config: inbound.config,
-    users: activeUsersForProtocol(inbound.protocol, state)
-  };
+    users: activeUsers
+  }];
 }
 
 function renderAccessNode(accessNode) {
@@ -169,14 +173,24 @@ function activeUsersForProtocol(protocol, state) {
 function renderProtocolUser(user, protocol, state) {
   const plan = state.plans.find((item) => item.id === user.planId);
   const trafficLimitBytes = user.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null;
+  const overQuota = Boolean(trafficLimitBytes && Number(user.usedTrafficBytes || 0) >= Number(trafficLimitBytes));
+  const overQuotaPolicy = plan?.overQuotaPolicy || "disconnect";
+  let effectiveRateMbps = user.limits?.rateMbps ?? null;
+  if (overQuota && overQuotaPolicy === "throttle") {
+    // 超额后自动限速 1Mbps，保留用户连接
+    effectiveRateMbps = 1;
+  }
   const common = {
     userId: user.id,
     name: user.name,
     planId: user.planId || null,
     trafficLimitBytes,
-    usedTrafficBytes: user.usedTrafficBytes,
     expiresAt: user.expiresAt,
-    limits: user.limits
+    overQuota,
+    limits: {
+      ...(user.limits || {}),
+      rateMbps: effectiveRateMbps
+    }
   };
 
   if (protocol === PROTOCOLS.ANYTLS) {
@@ -209,7 +223,11 @@ export function isUserActive(user, state) {
     return false;
   }
   const trafficLimitBytes = user.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null;
-  if (trafficLimitBytes && user.usedTrafficBytes >= trafficLimitBytes) {
+  if (trafficLimitBytes && Number(user.usedTrafficBytes || 0) >= Number(trafficLimitBytes)) {
+    // 超额策略为“限速 1Mbps”时保留节点访问，否则断流
+    if ((plan?.overQuotaPolicy || "disconnect") === "throttle") {
+      return true;
+    }
     return false;
   }
   return true;

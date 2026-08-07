@@ -60,6 +60,56 @@ test("normalizeState migrates direct access nodes into inbounds and permission i
   assert.equal(state.schemaVersion, 3);
 });
 
+test("normalizeState prunes stale node references from plans and users", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kato-prune-"));
+  const path = join(dir, "store.json");
+  const now = new Date().toISOString();
+  await writeFile(
+    path,
+    JSON.stringify({
+      schemaVersion: 3,
+      createdAt: now,
+      configRevision: 1,
+      configUpdatedAt: now,
+      settings: {},
+      proxyNodes: [],
+      nodeInbounds: [
+        { id: "inbound_1", proxyNodeId: "proxy_1", name: "HK", enabled: true, protocol: "anytls", listen: "0.0.0.0", port: 2053, transport: "tcp", groups: [], config: {}, tags: [] }
+      ],
+      accessNodes: [
+        { id: "access_1", name: "HK Relay", type: "relay", enabled: true, protocol: "anytls", inboundId: "inbound_1", proxyNodeId: "proxy_1", transitRelayId: "relay_1", host: "relay.example.com", port: 18444, groups: [], tags: [] }
+      ],
+      plans: [
+        {
+          id: "plan_1",
+          name: "Pro",
+          enabled: true,
+          allowedAccessNodes: ["inbound:inbound_1", "access:access_1", "access:access_deleted", "inbound:inbound_deleted"],
+          tags: []
+        }
+      ],
+      users: [
+        {
+          id: "user_1",
+          name: "alice",
+          enabled: true,
+          planId: "plan_1",
+          subscriptionToken: "sub_x",
+          access: { nodeGroups: [], relayGroups: [], protocols: [], accessNodes: ["access:access_1", "access:access_deleted"] },
+          credentials: { anytlsPassword: "a" }
+        }
+      ]
+    })
+  );
+
+  const store = new JsonStore(path);
+  await store.load();
+  const plan = store.state.plans.find((item) => item.id === "plan_1");
+  assert.deepEqual(plan.allowedAccessNodes, ["inbound:inbound_1", "access:access_1"]);
+  const user = store.state.users.find((item) => item.id === "user_1");
+  assert.deepEqual(user.access.accessNodes, ["access:access_1"]);
+});
+
 test("frontend and subscription edge resources support crud and agent linking", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kato-edges-"));
   const app = await createBackendApp({

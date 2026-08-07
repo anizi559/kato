@@ -106,10 +106,10 @@ async function validateRuntimeBinaries(config, tmpDir, bundle) {
     return;
   }
 
-  const xrayConfig = bundle.files.find((file) => file.component === "xray");
-  if (xrayConfig) {
-    const xrayBinary = config.binaries?.xray || "xray";
-    await execWithContext(xrayBinary, ["run", "-test", "-c", join(tmpDir, xrayConfig.path)], "xray config test");
+  const singboxConfig = bundle.files.find((file) => file.component === "sing-box");
+  if (singboxConfig) {
+    const singboxBinary = config.binaries?.singbox || "sing-box";
+    await execWithContext(singboxBinary, ["check", "-c", join(tmpDir, singboxConfig.path)], "sing-box config check");
   }
 }
 

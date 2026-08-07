@@ -35,9 +35,8 @@ export async function loadAgentConfig(path = process.env.AGENT_CONFIG || "config
     binaryValidation: false,
     autoStart: false,
     binaries: {
-      xray: "xray",
-      hysteria: "hysteria",
-      realm: "tools/bin/realm"
+      realm: "realm",
+      singbox: "sing-box"
     },
     ...config
   };

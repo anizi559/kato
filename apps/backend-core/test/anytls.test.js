@@ -38,7 +38,12 @@ test("anytls inbound compiles desired state and subscription formats", async () 
       planId: plan.id
     });
     assert.match(user.credentials.anytlsPassword, /^anytls_/);
-    assert.notEqual(user.credentials.anytlsPassword, user.credentials.vlessUuid);
+
+    const secondUser = await adminPost(app, "users", {
+      name: "anytls-user-2",
+      planId: plan.id
+    });
+    assert.ok(secondUser.id !== user.id);
 
     const proxyNode = await adminPost(app, "proxy-nodes", {
       name: "sg-anytls-01",
@@ -66,7 +71,10 @@ test("anytls inbound compiles desired state and subscription formats", async () 
     const desired = await getDesiredState(app, agent);
     assert.equal(desired.desiredState.inbounds.length, 1);
     assert.equal(desired.desiredState.inbounds[0].protocol, PROTOCOLS.ANYTLS);
+    assert.equal(desired.desiredState.inbounds[0].port, 443);
+    assert.equal(desired.desiredState.inbounds[0].users.length, 2);
     assert.equal(desired.desiredState.inbounds[0].users[0].credential.password, user.credentials.anytlsPassword);
+    assert.equal(desired.desiredState.inbounds[0].users[1].credential.password, secondUser.credentials.anytlsPassword);
     assert.equal(desired.desiredState.accessNodes.length, 0);
 
     const subAgent = await registerResourceAgent(app, "subscription-edge", null, "sub-anytls");
@@ -90,6 +98,99 @@ test("anytls inbound compiles desired state and subscription formats", async () 
     const clash = await fetchSubscription(app, subAgent, user.subscriptionToken, "ClashMeta/1.18.0");
     const clashYaml = await clash.text();
     assert.match(clashYaml, /type: "anytls"/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("plan speed limit is inherited on user create and synced on plan update", async () => {
+  const app = await startTestServer();
+  try {
+    const plan = await adminPost(app, "plans", {
+      name: "Rate Limited Plan",
+      speedLimitMbps: 20
+    });
+    const user = await adminPost(app, "users", {
+      name: "rate-limited-user",
+      planId: plan.id
+    });
+    assert.equal(user.limits.rateMbps, 20);
+
+    const updatedPlan = await requestJson(app, `/api/v1/admin/plans/${plan.id}`, {
+      method: "PATCH",
+      admin: true,
+      body: { speedLimitMbps: 50 }
+    });
+    assert.equal(updatedPlan.status, 200);
+
+    const userResponse = await requestJson(app, `/api/v1/admin/users/${user.id}`, {
+      method: "GET",
+      admin: true
+    });
+    assert.equal(userResponse.body.limits.rateMbps, 50);
+  } finally {
+    await app.close();
+  }
+});
+
+test("over-quota policy controls disconnect vs 1Mbps throttle on single port", async () => {
+  const app = await startTestServer();
+  try {
+    const proxyNode = await adminPost(app, "proxy-nodes", {
+      name: "quota-node",
+      publicHost: "quota.example.com",
+      entryDomain: "quota.example.com"
+    });
+    await adminPost(app, "node-inbounds", {
+      proxyNodeId: proxyNode.id,
+      name: "Quota AnyTLS",
+      protocol: PROTOCOLS.ANYTLS,
+      port: 443,
+      config: {
+        tls: { sni: "quota.example.com" }
+      }
+    });
+    const proxyAgent = await registerResourceAgent(app, "proxy-node", proxyNode.id, proxyNode.name);
+    const subAgent = await registerResourceAgent(app, "subscription-edge", null, "sub-quota");
+
+    const disconnectPlan = await adminPost(app, "plans", {
+      name: "Disconnect Plan",
+      trafficLimitBytes: 1000
+    });
+    assert.equal(disconnectPlan.overQuotaPolicy, "disconnect");
+    const disconnectedUser = await adminPost(app, "users", {
+      name: "over-quota-disconnect",
+      planId: disconnectPlan.id,
+      usedTrafficBytes: 1000
+    });
+
+    const disconnectDesired = await getDesiredState(app, proxyAgent);
+    assert.equal(disconnectDesired.desiredState.inbounds.length, 0);
+    const disconnectSub = await fetchSubscription(app, subAgent, disconnectedUser.subscriptionToken);
+    assert.equal(disconnectSub.status, 404);
+
+    const throttlePlan = await adminPost(app, "plans", {
+      name: "Throttle Plan",
+      trafficLimitBytes: 1000,
+      overQuotaPolicy: "throttle"
+    });
+    assert.equal(throttlePlan.overQuotaPolicy, "throttle");
+    const throttledUser = await adminPost(app, "users", {
+      name: "over-quota-throttle",
+      planId: throttlePlan.id,
+      usedTrafficBytes: 1000
+    });
+
+    const throttleDesired = await getDesiredState(app, proxyAgent);
+    assert.equal(throttleDesired.desiredState.inbounds.length, 1);
+    const throttled = throttleDesired.desiredState.inbounds[0].users.find(
+      (user) => user.userId === throttledUser.id
+    );
+    assert.ok(throttled);
+    assert.equal(throttled.overQuota, true);
+    assert.equal(throttled.limits.rateMbps, 1);
+    const throttleSub = await fetchSubscription(app, subAgent, throttledUser.subscriptionToken);
+    assert.equal(throttleSub.status, 200);
   } finally {
     await app.close();
   }

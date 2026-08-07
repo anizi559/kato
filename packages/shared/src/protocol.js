@@ -1,4 +1,4 @@
-export const VERSION = "0.10.0";
+export const VERSION = "1.0.0";
 
 export const AGENT_ROLES = Object.freeze([
   "frontend-edge",

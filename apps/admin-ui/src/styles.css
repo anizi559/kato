@@ -1047,45 +1047,52 @@ a {
 }
 
 .node-picker {
-  display: grid;
-  gap: 2px;
-  max-height: 260px;
-  overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px;
-  background: #ffffff;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
 }
 
-.node-picker__item {
+.node-chip {
+  position: relative;
   display: flex;
-  gap: 8px;
   align-items: center;
-  min-height: 30px;
-  padding: 0 10px;
-  border-radius: 6px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
   font-size: 13px;
   color: #25324a;
   cursor: pointer;
-  transition: background 140ms ease;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
-.node-picker__item:hover {
-  background: #f2f7ff;
+.node-picker .node-chip:hover {
+  border-color: var(--blue);
+  color: var(--blue);
 }
 
-.node-picker__item input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
+.node-chip input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   margin: 0;
-  accent-color: var(--blue);
-  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.node-picker__item:has(input:checked) {
-  background: #eaf2ff;
-  color: #075bd8;
+.node-picker .node-chip--checked,
+.node-picker .node-chip--checked:hover {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #ffffff;
   font-weight: 600;
+  box-shadow: 0 0 0 3px rgb(7 91 216 / 12%);
 }
 
 .anytls-cert-box {
@@ -1212,6 +1219,24 @@ a {
   border-radius: 5px;
   background: #ffffff;
   color: var(--blue);
+}
+
+.subscription-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 12px;
+  border: 1px solid #cfe0f8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.subscription-qr small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .relay-drawer__footer {

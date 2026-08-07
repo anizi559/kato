@@ -26,6 +26,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   adminDelete,
   adminGet,
@@ -304,7 +305,7 @@ const resourceConfigs = {
     filters: [
       { key: "status", label: "状态", options: ["全部", "启用", "停用"] },
     ],
-    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["节点数", "nodeCount"]],
+    detailRows: [["权限组 ID", "id"], ["流量额度", "trafficQuota"], ["有效期", "duration"], ["节点数", "nodeCount"], ["超额策略", (row) => row.raw?.overQuotaPolicy === "throttle" ? "限速 1Mbps" : "断流"]],
     relationRows: [["用户数量", "userCount"], ["配置版本", "configVersion"]],
     metricRows: [["创建时间", "createdAt"], ["应用时间", "appliedAt"]],
     preview: (row) => `plan: ${row.id}\ntraffic_quota: ${row.trafficQuota}\nduration: ${row.duration}\nprotocols: ${row.protocols}\naccess_nodes: ${row.accessNodes}\nusers: ${row.userCount}`,
@@ -1010,6 +1011,8 @@ function adaptBackendResources({ collections, agents: rawAgents, summary, alerts
   const rulesByInbound = countBy(ruleRaw, "inboundId");
 
   const context = {
+    inboundRaw,
+    accessRaw,
     plansById,
     proxyById,
     inboundById,
@@ -1024,7 +1027,6 @@ function adaptBackendResources({ collections, agents: rawAgents, summary, alerts
     accessByRelay,
     rulesByInbound,
     usersRaw,
-    accessRaw,
     summary,
   };
 
@@ -1171,8 +1173,17 @@ function adaptTrafficRelay(row, context, date) {
   };
 }
 
+function visibleNodeIds(ids, context) {
+  const valid = new Set([
+    ...(context.inboundRaw || []).map((node) => `inbound:${node.id}`),
+    ...(context.accessRaw || []).map((node) => `access:${node.id}`)
+  ]);
+  return [...new Set((ids || []).filter((id) => valid.has(id)))];
+}
+
 function adaptPlan(plan, context) {
   const userCount = context.usersRaw.filter((user) => user.planId === plan.id).length;
+  const allowedNodes = visibleNodeIds(plan.allowedAccessNodes, context);
   return {
     id: plan.name || plan.id,
     resourceId: plan.id,
@@ -1183,7 +1194,7 @@ function adaptPlan(plan, context) {
     status: enabledLabel(plan, "启用", "停用"),
     trafficQuota: formatBytes(plan.trafficLimitBytes),
     duration: plan.durationDays ? `${plan.durationDays} 天` : "不限",
-    nodeCount: plan.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
+    nodeCount: allowedNodes.length ? `${allowedNodes.length} 个` : "全部",
     userCount: String(userCount),
     configVersion: `v${context.summary?.version || 1}`,
     createdAt: isoText(plan.createdAt),
@@ -1194,6 +1205,7 @@ function adaptPlan(plan, context) {
 function adaptUser(user, context) {
   const plan = context.plansById.get(user.planId);
   const total = user.trafficLimitBytes ?? plan?.trafficLimitBytes ?? null;
+  const visibleNodes = visibleNodeIds(plan?.allowedAccessNodes, context);
   return {
     id: user.name || user.email || user.id,
     resourceId: user.id,
@@ -1205,7 +1217,7 @@ function adaptUser(user, context) {
     plan: plan?.name || "未绑定",
     expiresAt: isoText(user.expiresAt, "不限").slice(0, 10),
     trafficUsed: `${formatBytes(user.usedTrafficBytes || 0)} / ${formatBytes(total)}`,
-    visibleNodes: plan?.allowedAccessNodes?.length ? `${plan.allowedAccessNodes.length} 个` : "全部",
+    visibleNodes: visibleNodes.length ? `${visibleNodes.length} 个` : "全部",
     protocols: "全部",
     subscription: user.enabled === false ? "禁用" : "启用",
     lastSeen: user.lastProxyUseAt ? isoText(user.lastProxyUseAt) : "未使用",
@@ -1429,6 +1441,7 @@ const resourceFormConfigs = {
         ...(data["access-nodes"] || []).map((node) => ({ label: node.name || node.id, value: `access:${node.resourceId}` })),
       ], hint: "勾选该权限组可订阅的节点；不勾选任何节点 = 可见全部节点" },
       { name: "speedLimitMbps", label: "限速 Mbps", type: "number", defaultValue: "" },
+      { name: "overQuotaPolicy", label: "超额策略", type: "select", defaultValue: "disconnect", options: [{ label: "断流（停止连接）", value: "disconnect" }, { label: "限速 1Mbps（保留连接）", value: "throttle" }] },
       { name: "enabled", label: "启用权限组", type: "checkbox", defaultValue: true },
     ],
     fromItem: (item) => ({
@@ -1437,6 +1450,7 @@ const resourceFormConfigs = {
       durationDays: item.raw?.durationDays || "",
       allowedAccessNodes: item.raw?.allowedAccessNodes || [],
       speedLimitMbps: item.raw?.speedLimitMbps || "",
+      overQuotaPolicy: item.raw?.overQuotaPolicy || "disconnect",
       enabled: item.raw?.enabled !== false,
     }),
     toApiInput: (values) => ({
@@ -1446,6 +1460,7 @@ const resourceFormConfigs = {
       durationDays: toNumber(values.durationDays, null),
       allowedAccessNodes: values.allowedAccessNodes || [],
       speedLimitMbps: toNumber(values.speedLimitMbps, null),
+      overQuotaPolicy: values.overQuotaPolicy || "disconnect",
     }),
   },
   "proxy-nodes": {
@@ -1742,7 +1757,7 @@ function makeLocalRow(sectionId, values, resourceData, item) {
       trafficQuota: formatBytes(raw.trafficLimitBytes),
       duration: values.durationDays ? `${values.durationDays} 天` : "不限",
       protocols: "AnyTLS",
-      nodeCount: values.allowedAccessNodes?.length ? `${values.allowedAccessNodes.length} 个` : "全部",
+      nodeCount: [...new Set(values.allowedAccessNodes || [])].length ? `${[...new Set(values.allowedAccessNodes || [])].length} 个` : "全部",
       userCount: item?.userCount || "0",
       configVersion: version,
       createdAt: isoText(raw.createdAt),
@@ -2238,6 +2253,12 @@ function GenericInspector({ item, config, onClose, onEdit, onDelete, onToggleEna
           ) : (
             <p className="drawer-note">请先在“系统设置 → 订阅默认策略”里填写订阅入口地址。</p>
           )}
+          {subscriptionLink ? (
+            <div className="subscription-qr">
+              <QRCodeSVG value={subscriptionLink} size={176} bgColor="#ffffff" fgColor="#172033" marginSize={2} />
+              <small>用客户端“扫码添加订阅”扫描即可导入</small>
+            </div>
+          ) : null}
           <label>
             <span>订阅令牌</span>
             <pre className="token-box"><button aria-label="复制订阅 Token" type="button" onClick={() => copyToClipboard(subscriptionToken, "订阅 Token")}><IconCopy size={16} stroke={1.9} /></button>{subscriptionToken || "-"}</pre>
@@ -3447,7 +3468,7 @@ function ResourceEditorDrawer({ open, sectionId, item, resourceData, onClose, on
                   {resolveFieldOptions(field, resourceData).map((option) => {
                     const checked = (values[field.name] || []).includes(option.value);
                     return (
-                      <label className="node-picker__item" key={option.value}>
+                      <label className={`node-chip${checked ? " node-chip--checked" : ""}`} key={option.value}>
                         <input
                           type="checkbox"
                           checked={checked}

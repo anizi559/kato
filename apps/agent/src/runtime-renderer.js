@@ -53,6 +53,35 @@ function renderTransitRelayRuntime(desired, files, warnings) {
 }
 
 export function renderSingboxConfig(inbounds) {
+  const usersById = new Map();
+  for (const inbound of inbounds) {
+    for (const user of inbound.users || []) {
+      usersById.set(user.userId, user);
+    }
+  }
+  const limitedUsers = [...usersById.values()].filter(
+    (user) => Number(user.limits?.rateMbps) > 0
+  );
+  const outbounds = [{ type: "direct", tag: "direct" }];
+  const routeRules = [];
+  for (const user of limitedUsers) {
+    const tag = `bw-${user.userId}`;
+    outbounds.push({
+      type: "bandwidth-limiter",
+      tag,
+      strategy: "global",
+      mode: "bidirectional",
+      speed: Math.round(Number(user.limits.rateMbps) * 125000),
+      route: {
+        rules: [],
+        final: "direct"
+      }
+    });
+    routeRules.push({
+      auth_user: [user.userId],
+      outbound: tag
+    });
+  }
   return {
     log: {
       level: "warn"
@@ -76,16 +105,26 @@ export function renderSingboxConfig(inbounds) {
         }
       };
     }),
-    outbounds: [
-      {
-        type: "direct",
-        tag: "direct"
-      }
-    ],
+    outbounds,
+    ...(routeRules.length
+      ? {
+          route: {
+            rules: routeRules,
+            final: "direct"
+          }
+        }
+      : {}),
     experimental: {
       clash_api: {
         external_controller: "127.0.0.1:19090",
         secret: "kato-local-stats"
+      },
+      v2ray_api: {
+        listen: "127.0.0.1:19091",
+        stats: {
+          enabled: true,
+          users: [...usersById.keys()]
+        }
       }
     }
   };

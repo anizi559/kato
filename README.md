@@ -1,61 +1,92 @@
-# Kato Control Plane
+# Kato v1.0.0
 
-自研代理管理系统 monorepo。
+自研代理管理系统 monorepo：控制面与数据面分离，多用户 **AnyTLS 单端口** + Realm 中转。
 
-当前版本：`0.6.1`
+> 版本：**v1.0.0**（第一个大版本）
 
-已完成阶段：
+## 特性
 
-- 第一阶段：Backend Core 最小 API、Agent 注册/心跳/desired-state、last known good config、项目骨架。
-- 第二阶段：核心资源模型、管理 API、Proxy/Relay desired-state 编译、中转访问节点与 Relay Rule 联动。
-- 第三阶段：Agent 运行配置渲染、sing-box/Realm 配置落盘、备份、离线重放、配置校验、托管进程启动/停止/状态检查。
-- 第四阶段（v0.4.x）：中文交互安装向导、五类角色一键安装/升级、HTTPS/证书自动化、前端工具站、安装 Token 弹窗、服务器管理分组。
-- 第五阶段（v0.5.0）：订阅服务器 Subscription Edge 正式落地，支持 sing-box / Clash Meta / URI+Base64 订阅、按权限组过滤节点、UA 自动识别格式、订阅 Token 重置、订阅相关系统设置。
-- 第六阶段（v0.6.0）：订阅入口缓存/限速/故障兜底；真实流量统计（Xray stats API + Hysteria2 Traffic Stats API，Agent 周期上报）；监控告警（离线/运行异常检测、Webhook/Telegram 通知、告警/审计/流量页面接入）；AnyTLS 协议支持（sing-box 服务端 + 订阅分发）。
-- v0.6.1：主动健康探测（Backend 定时探测访问节点与转发规则端口，失败自动生成告警；前端展示探测状态/延迟）。
-- v0.7.0：面板系统设置可在线修改管理后台隐藏路径（前端本地管理服务自动改 Nginx 并迁移目录）；REALITY Dest/SNI 可在新建协议入站时自定义，编辑入站不再丢失密钥。
-- v0.10.0：协议收敛为仅 AnyTLS + Realm 中转；删除 VLESS REALITY / Hysteria2 全部代码、前端与安装逻辑；节点运行时仅 sing-box + realm。
+- 五类服务器角色一键安装/升级：backend-core、admin-ui、subscription-edge、proxy-node、transit-relay。
+- **AnyTLS 单端口多用户**：每个入站一个端口服务所有用户，不再按用户分配端口。
+- 按用户限速：`auth_user` + bandwidth-limiter，单端口下互不影响。
+- 按用户流量统计：sing-box V2Ray API（需 `with_v2ray_api` 编译标签）。
+- 超额策略：权限组可配置“断流”或“限速 1Mbps”。
+- 订阅体系：sing-box / Clash / URI 自动识别，缓存/限速/故障兜底，订阅链接+二维码，一键重置令牌。
+- 主动健康探测、告警、审计、今日流量监测。
+- Let's Encrypt + Cloudflare DNS-01 自动证书，AnyTLS 随机二级域名一键签发。
 
-当前目录：
+## 目录结构
 
-- `apps/backend-core`：核心控制面。
-- `apps/agent`：Proxy Node / Transit Relay 共用轻量 Agent 骨架。
-- `apps/frontend-edge`：前端入口占位。
-  - `apps/subscription-edge`：订阅入口服务器，对外分发用户订阅，支持缓存、限速和后端故障兜底。
-- `packages/shared`：共享协议常量和工具。
-- `configs`：示例配置。
-- `docs`：协议和阶段说明。
-- `scripts`：本地运维 CLI。
-
-本地验证：
-
-```bash
-npm test
+```text
+apps/
+├── backend-core/       # 面板后端控制面（Node HTTP + JSON 存储）
+├── admin-ui/           # 管理前端（React + Vite，隐藏路径部署）
+├── agent/              # 节点 Agent（proxy-node / transit-relay / 订阅入口共用）
+├── subscription-edge/  # 订阅入口服务
+├── frontend-local/     # 前端本地管理服务（隐藏路径迁移等）
+└── frontend-edge/      # 前端入口占位
+packages/shared/        # 共享协议常量与工具
+configs/                # 示例配置
+docs/                   # 架构、问题与解决方案、API 协议
+scripts/                # 运维 CLI（panelctl、前端备份迁移）
+install.sh              # 一键安装/升级脚本
 ```
 
-一键安装：
+## 文档
+
+- [架构与技术点](docs/architecture.md)
+- [问题与解决方案](docs/problems-and-solutions.md)
+- [Agent 协议](docs/api/agent-protocol.md)
+- [OpenAPI 概览](docs/api/openapi.yaml)
+- 完整安装/使用/运维 Wiki 本地保留（不随仓库上传）。
+
+## 本地开发
+
+```bash
+npm install
+npm test                 # 全量测试
+npm run dev:backend      # 启动后端
+npm run dev:admin        # 启动前端开发服务器
+```
+
+构建前端生产包：
+
+```bash
+npm run build:admin
+```
+
+## 一键安装
 
 ```bash
 sudo ./install.sh
 ```
 
-新手建议直接运行上面的命令，脚本会用中文向导一步一步询问：
-
-- 要安装哪种服务器角色。
-- 是否切换 apt 镜像源。
-- 源码从默认仓库克隆，还是使用自定义仓库/本地源码目录。
-- 后端监听端口、初始化管理员账号密码、前端配对 token、隐藏后台路径、节点 bootstrap token 等关键参数。
-
-也可以直接指定角色，适合服务器重装后的首次部署或后续升级：
+新手直接运行，脚本会用中文向导询问角色和参数。也可以指定角色：
 
 ```bash
 sudo ./install.sh --role backend-core
 sudo ./install.sh --role admin-ui --backend-url http://<backend-ip>:8080 --frontend-token <front-token>
 sudo ./install.sh --role proxy-node --backend-url http://<backend-ip>:8080 --bootstrap-token <boot-token>
 sudo ./install.sh --role transit-relay --backend-url http://<backend-ip>:8080 --bootstrap-token <boot-token>
+sudo ./install.sh --role subscription-edge --backend-url http://<backend-ip>:8080 --bootstrap-token <boot-token>
 ```
 
-前端或公网后端启用 HTTPS 时，交互向导会继续询问域名、Let's Encrypt 邮箱和 Cloudflare API Token。Token 建议只授予目标 Zone 的 `Zone:Read` 与 `DNS:Edit` 权限：
+推荐安装顺序：`backend-core` → `admin-ui` → `subscription-edge` → `proxy-node` → `transit-relay`。
+
+### proxy-node 重要说明（v1.0.0）
+
+按用户流量统计依赖带 `with_v2ray_api` 的 sing-box 编译版本，官方 Release 默认不带。安装代理节点时用：
+
+```bash
+sudo KATO_SINGBOX_BINARY_URL="https://你的下载地址/sing-box-extended-...-with-v2ray-api" \
+  ./install.sh --role proxy-node \
+  --backend-url http://<backend-ip>:8080 \
+  --bootstrap-token <boot-token>
+```
+
+或使用等价参数 `--singbox-url <url>`。
+
+### HTTPS / 证书
 
 ```bash
 sudo ./install.sh --role admin-ui \
@@ -67,147 +98,44 @@ sudo ./install.sh --role admin-ui \
   --cloudflare-api-token <cloudflare-token>
 ```
 
-后端有两种推荐模式：
+证书使用 Cloudflare DNS-01 验证（不依赖 80 端口），Certbot 自动续期并重载 Nginx。
 
-- 内网 / WireGuard 模式：不启用公网 HTTPS，防火墙仅允许受信服务器访问后端端口。
-- 公网模式：启用 HTTPS。安装脚本会让 Backend Core 只监听 `127.0.0.1`，由 Nginx 在 443 提供 HTTPS 反向代理。
+### 低配服务器
 
-证书使用 Cloudflare DNS-01 验证，不依赖 HTTP 验证端口；安装器会启用 Certbot 自动续期，并在续期成功后检查并重载 Nginx。
+- 脚本在 RAM 不足且 swap 不足时自动创建 `/swapfile-kato`。
+- 远程安装建议先 `tmux new -s kato-install` 再运行，SSH 断开后可 `tmux attach -t kato-install` 回到现场。
 
-推荐安装顺序：
-
-1. 先安装 `backend-core`。安装脚本会自动创建空数据库、引导创建管理员账号密码，并输出“前端配对 token”。
-2. 再安装 `admin-ui`。根路径会是一个轻量工具站，管理后台会放在隐藏路径，例如 `/admin-06161230/`；脚本会把 `/api/` 反向代理到后端并自动附带前端配对 token。
-3. 打开前端管理后台，用后端安装时创建的管理员账号密码登录。
-
-订阅入口服务器安装示例（需要先在后端面板的“服务器管理 → 订阅服务器”里生成安装 Token）：
-
-```bash
-sudo ./install.sh --role subscription-edge \
-  --backend-url http://后端IP:8080 \
-  --bootstrap-token boot_xxx \
-  --subscription-path-prefix go
-```
-
-安装完成后，在面板“系统设置 → 订阅默认策略”填写订阅入口地址（例如 `https://katotool.com`），然后在“用户”详情里复制每个用户的订阅链接：
-
-```text
-https://katotool.com/go/<用户订阅Token>
-```
-
-客户端会自动按 User-Agent 选择 sing-box JSON / Clash Meta YAML / URI+Base64 中的合适格式。
-
-安装器会自动补齐 Debian/Ubuntu 上的基础工具、Node.js 22、systemd 服务、配置目录和运行目录。网络不稳定时可以显式切换 apt 镜像：
-
-```bash
-sudo ./install.sh --role backend-core --apt-mirror tuna
-```
-
-低配服务器建议：
-
-- 前端构建会占用较多 CPU 和内存。安装脚本会在 RAM 小于约 2GB 且 swap 不足时自动创建 `/swapfile-kato`，降低构建时 SSH 卡死或断开的概率。
-- 远程安装建议先进入 `tmux` 再运行安装脚本。即使 SSH 断开，也可以重新登录后用 `tmux attach -t kato-install` 回到安装现场。
-
-```bash
-apt update && apt install -y tmux
-tmux new -s kato-install
-bash <(curl -fsSL https://raw.githubusercontent.com/anizi559/kato/main/install.sh)
-```
-
-主要安装路径：
+## 主要路径
 
 - `/opt/kato/src`：应用源码。
 - `/etc/kato`：服务配置和 token。
-- `/var/lib/kato`：后端数据库、agent 状态和 runtime 配置。
+- `/var/lib/kato`：后端数据库、Agent 状态、runtime 配置。
 - `/var/log/kato`：运行日志。
+- `/var/backups/kato`：升级前自动备份。
 
-配置文件说明：
-
-- `/etc/kato/backend-core.json`：面板后端配置，安装脚本会自动写入中文 `_说明` 字段。
-- `/etc/kato/backend-core.env`：面板后端环境变量，里面包含维护 API 密钥，请勿泄露。
-- `/etc/kato/frontend-pairing-token.txt`：后端生成的前端配对 token，用于前端服务器反向代理后端。
-- `/etc/kato/tls.env`：当前服务器的 HTTPS 模式、域名、ACME 邮箱和证书名称。
-- `/etc/kato/cloudflare.ini`：Cloudflare DNS API Token，仅 root 可读，请勿泄露。
-- `/var/backups/kato`：安装器创建的升级前备份，仅 root 可读，可能包含服务密钥。
-- `/etc/kato/agent.json`：节点 Agent 配置，安装脚本会自动写入中文 `_说明` 字段。
-- `/etc/kato/agent.env`：节点 Agent 环境变量。
-- `configs/*.example.json`：仓库里的示例配置，可复制后改成自己的本地配置。
-
-测试环境工具安装：
-
-```bash
-scripts/setup-test-env.sh --mirror tuna --proxy http://127.0.0.1:7897
-```
-
-已覆盖的第三阶段本地工具：
-
-- sing-box
-- Realm
-- gost
-- Realm
-- Go / Rust
-- socat / iperf3
-- shellcheck
-- GitHub CLI
-
-启动 Backend Core：
-
-```bash
-BACKEND_ADMIN_TOKEN=<admin-token> npm run dev:backend
-```
-
-启动 Admin UI：
-
-```bash
-npm run dev:admin
-```
-
-写入一套可重复执行的 demo 数据：
-
-```bash
-BACKEND_ADMIN_TOKEN=<admin-token> npm run seed:demo
-```
-
-前端连接后端：
-
-1. 打开 `http://127.0.0.1:5173/`。
-2. 进入“系统设置 / Backend API”。
-3. 填写 `API Base URL`，默认 `http://127.0.0.1:8080`。
-4. 填写启动后端时使用的 `BACKEND_ADMIN_TOKEN`，点击“保存并连接”。
-
-如果前端和后端部署在不同域名，通过 `BACKEND_ADMIN_CORS_ORIGINS` 设置允许访问的前端源：
-
-```bash
-BACKEND_ADMIN_CORS_ORIGINS=https://panel.example.com BACKEND_ADMIN_TOKEN=<admin-token> npm run dev:backend
-```
-
-创建 bootstrap token：
-
-```bash
-BACKEND_ADMIN_TOKEN=<admin-token> node scripts/panelctl.js create-bootstrap-token --role proxy-node --resourceId <proxy-node-id> --name test-node
-```
-
-Agent 单次同步：
-
-```bash
-AGENT_CONFIG=configs/agent.local.json npm run dev:agent
-```
-
-Agent 托管进程命令：
-
-```bash
-AGENT_CONFIG=configs/agent.local.json node apps/agent/src/main.js start
-AGENT_CONFIG=configs/agent.local.json node apps/agent/src/main.js status
-AGENT_CONFIG=configs/agent.local.json node apps/agent/src/main.js ports
-AGENT_CONFIG=configs/agent.local.json node apps/agent/src/main.js restart
-AGENT_CONFIG=configs/agent.local.json node apps/agent/src/main.js stop
-```
-
-资源管理示例：
+## 运维 CLI
 
 ```bash
 BACKEND_ADMIN_TOKEN=<admin-token> node scripts/panelctl.js summary
 BACKEND_ADMIN_TOKEN=<admin-token> node scripts/panelctl.js list proxy-nodes
-BACKEND_ADMIN_TOKEN=<admin-token> node scripts/panelctl.js create users --json '{"name":"alice"}'
-BACKEND_ADMIN_TOKEN=<admin-token> node scripts/panelctl.js create-relay-access-node --json '{"inboundId":"...","transitRelayId":"...","entryPort":8443}'
+BACKEND_ADMIN_TOKEN=<admin-token> node scripts/panelctl.js create-bootstrap-token --role proxy-node --resourceId <proxy-node-id> --name hk-01
 ```
+
+前端面板备份/迁移/还原：
+
+```bash
+scripts/admin-ui-backup.sh
+scripts/admin-ui-restore.sh
+```
+
+## 测试
+
+```bash
+npm test
+```
+
+覆盖：后端资源 CRUD、desired-state 编译、订阅生成、健康探测、流量上报、单端口多用户渲染、V2Ray API gRPC 客户端、Agent 注册/离线重放等。
+
+## License
+
+见 [LICENSE](LICENSE)。

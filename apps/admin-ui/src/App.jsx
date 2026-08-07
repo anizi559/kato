@@ -860,9 +860,28 @@ function trimNumber(value) {
   return Number(value.toFixed(1)).toString();
 }
 
+let panelTimezone = "Asia/Shanghai";
+
+function setPanelTimezone(timezone) {
+  panelTimezone = timezone || "Asia/Shanghai";
+}
+
 function isoText(value, fallback = "-") {
   if (!value) return fallback;
-  return String(value).replace("T", " ").slice(0, 19);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: panelTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const pick = (type) => parts.find((part) => part.type === type)?.value || "00";
+  return `${pick("year")}-${pick("month")}-${pick("day")} ${pick("hour")}:${pick("minute")}:${pick("second")}`;
 }
 
 function protocolLabel(protocol) {
@@ -3863,6 +3882,7 @@ export function App() {
         trafficSummary: trafficResult,
       });
       setResourceData((current) => ({ ...current, ...adapted }));
+      setPanelTimezone(settingsResult?.timezone);
       setBackendSettings(settingsResult);
       setApiStatus({
         mode: "connected",

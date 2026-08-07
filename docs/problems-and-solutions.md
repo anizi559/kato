@@ -111,3 +111,9 @@
 **问题**：Cloudflare 证书 vs Let's Encrypt。
 
 **方案**：使用 Let's Encrypt + Cloudflare DNS-01 验证：免费、90 天自动续期、不依赖 80 端口、支持泛域名场景；Cloudflare 证书在代理节点上不适用。
+
+## 16. 面板时间显示时区错误
+
+**问题**：后端统一存储 UTC（ISO 时间），前端原先只是把 `T` 换成空格直接截断显示，导致所有时间（最近使用、创建时间、告警/审计时间）都比北京时间慢 8 小时。
+
+**方案**：前端 `isoText` 改用 `Intl.DateTimeFormat` 按面板时区（默认 Asia/Shanghai，跟随系统设置 `timezone`）转换后显示；该修复对所有时间字段统一生效。

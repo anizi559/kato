@@ -41,6 +41,8 @@ install.sh              # 一键安装/升级脚本
 - [OpenAPI 概览](docs/api/openapi.yaml)
 - 完整安装/使用/运维 Wiki 本地保留（不随仓库上传）。
 
+本地完整 Wiki（换模型/换人时先看这里）：[wiki/00-README.md](wiki/00-README.md)，包含架构、技术点、安装、使用、注意事项、QA、问题与解决方案、脚本说明、部署现状。
+
 ## 本地开发
 
 ```bash

@@ -6,6 +6,7 @@ dist/
 coverage/
 *.log
 *.docx
+wiki/
 .~*
 .cargo/
 configs/*.local.json

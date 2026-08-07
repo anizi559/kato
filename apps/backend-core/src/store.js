@@ -352,6 +352,8 @@ export class JsonStore {
         id: createId("traffic"),
         agentId,
         inboundId: report?.inboundId || null,
+        transitRelayId: report?.kind === "relay" ? report?.transitRelayId || agent.resourceId || null : null,
+        entryPort: report?.entryPort || null,
         userId: report?.userId || null,
         uploadBytes,
         downloadBytes,
@@ -1483,6 +1485,7 @@ function summarizeTrafficToday(logs) {
   let downloadBytes = 0;
   const activeAgents = new Set();
   const byInbound = new Map();
+  const byRelay = new Map();
 
   for (const entry of todayLogs) {
     uploadBytes += entry.uploadBytes || 0;
@@ -1494,6 +1497,12 @@ function summarizeTrafficToday(logs) {
       row.downloadBytes += entry.downloadBytes || 0;
       byInbound.set(entry.inboundId, row);
     }
+    if (entry.transitRelayId) {
+      const row = byRelay.get(entry.transitRelayId) || { uploadBytes: 0, downloadBytes: 0 };
+      row.uploadBytes += entry.uploadBytes || 0;
+      row.downloadBytes += entry.downloadBytes || 0;
+      byRelay.set(entry.transitRelayId, row);
+    }
   }
 
   return {
@@ -1503,9 +1512,18 @@ function summarizeTrafficToday(logs) {
     totalBytes: uploadBytes + downloadBytes,
     activeAgents: activeAgents.size,
     activeInbounds: byInbound.size,
+    activeRelays: byRelay.size,
     byInbound: [...byInbound.entries()]
       .map(([inboundId, row]) => ({
         inboundId,
+        uploadBytes: row.uploadBytes,
+        downloadBytes: row.downloadBytes,
+        totalBytes: row.uploadBytes + row.downloadBytes
+      }))
+      .sort((left, right) => right.totalBytes - left.totalBytes),
+    byRelay: [...byRelay.entries()]
+      .map(([transitRelayId, row]) => ({
+        transitRelayId,
         uploadBytes: row.uploadBytes,
         downloadBytes: row.downloadBytes,
         totalBytes: row.uploadBytes + row.downloadBytes

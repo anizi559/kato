@@ -187,6 +187,40 @@ test("node-level traffic reports accumulate today by inbound", async () => {
   }
 });
 
+test("relay traffic reports accumulate today by transit relay", async () => {
+  const app = await startTestServer();
+  try {
+    const relay = await adminPost(app, "transit-relays", {
+      name: "香港中转",
+      publicIp: "203.0.113.9"
+    });
+    const agent = await registerResourceAgent(app, "transit-relay", relay.id, "relay-hk");
+
+    const result = await requestJson(app, `/api/v1/agents/${agent.agentId}/reports/traffic`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${agent.agentSecret}`
+      },
+      body: {
+        reports: [
+          { kind: "relay", entryPort: 18444, uploadBytes: 200, downloadBytes: 1800 }
+        ]
+      }
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.addedBytes, 2000);
+
+    const summary = await adminGet(app, "traffic-summary");
+    assert.equal(summary.today.totalBytes, 2000);
+    assert.equal(summary.today.activeRelays, 1);
+    assert.equal(summary.today.byRelay.length, 1);
+    assert.equal(summary.today.byRelay[0].transitRelayId, relay.id);
+    assert.equal(summary.today.byRelay[0].totalBytes, 2000);
+  } finally {
+    await app.close();
+  }
+});
+
 async function reportTraffic(app, agent, userId, uploadBytes, downloadBytes) {
   const result = await requestJson(app, `/api/v1/agents/${agent.agentId}/reports/traffic`, {
     method: "POST",

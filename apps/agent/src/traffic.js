@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 const NFT_TABLE = "kato_traffic";
 
 export async function ensureTrafficCounters(config) {
-  const ports = await readManagedInboundPorts(config);
+  const ports = await readManagedPorts(config);
   await ensureNftChain("input");
   await ensureNftChain("output");
   for (const port of ports) {
@@ -15,6 +15,13 @@ export async function ensureTrafficCounters(config) {
     await ensureNftRule("output", `tcp sport ${port} counter`);
   }
   return ports;
+}
+
+async function readManagedPorts(config) {
+  if (config.role === "transit-relay") {
+    return readRealmPorts(config);
+  }
+  return readManagedInboundPorts(config);
 }
 
 async function ensureNftChain(chain) {
@@ -60,6 +67,24 @@ export async function readManagedInboundPorts(config) {
   }
 }
 
+export async function readRealmPorts(config) {
+  try {
+    const raw = await readFile(
+      join(config.runtimeDir || "data/runtime", "realm", "config.json"),
+      "utf8"
+    );
+    const parsed = JSON.parse(raw);
+    return (parsed.endpoints || [])
+      .map((endpoint) => {
+        const match = String(endpoint.listen || "").match(/:(\d+)$/);
+        return match ? Number(match[1]) : null;
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export async function readManagedInboundIds(config) {
   try {
     const raw = await readFile(
@@ -73,23 +98,33 @@ export async function readManagedInboundIds(config) {
   }
 }
 
-function parseNftCounter(stdout) {
-  let bytes = 0;
+function parseNftCounterByPort(stdout) {
+  const byPort = new Map();
   for (const line of stdout.split("\n")) {
-    const match = line.match(/counter packets \d+ bytes (\d+)/);
+    const match = line.match(/(?:dport|sport) (\d+) counter packets \d+ bytes (\d+)/);
     if (match) {
-      bytes += Number(match[1]) || 0;
+      const port = Number(match[1]);
+      const bytes = Number(match[2]) || 0;
+      byPort.set(port, (byPort.get(port) || 0) + bytes);
     }
   }
-  return bytes;
+  return byPort;
 }
 
 export async function readTrafficCounters() {
   const input = await execFileAsync("nft", ["list", "chain", "inet", NFT_TABLE, "input"]);
   const output = await execFileAsync("nft", ["list", "chain", "inet", NFT_TABLE, "output"]);
-  const up = parseNftCounter(input.stdout);
-  const down = parseNftCounter(output.stdout);
-  return { up, down };
+  const upByPort = parseNftCounterByPort(input.stdout);
+  const downByPort = parseNftCounterByPort(output.stdout);
+  const ports = new Set([...upByPort.keys(), ...downByPort.keys()]);
+  const counter = {};
+  for (const port of ports) {
+    counter[String(port)] = {
+      up: upByPort.get(port) || 0,
+      down: downByPort.get(port) || 0
+    };
+  }
+  return counter;
 }
 
 export async function collectTrafficReport(config, state) {
@@ -113,22 +148,28 @@ export async function collectTrafficReport(config, state) {
   if (!previous) {
     return { counter, ports, reports: [], baseline: true };
   }
-  const uploadBytes = Math.max(0, counter.up - (previous.up || 0));
-  const downloadBytes = Math.max(0, counter.down - (previous.down || 0));
-  if (uploadBytes === 0 && downloadBytes === 0) {
-    return { counter, ports, reports: [], noChange: true };
+  const isRelay = config.role === "transit-relay";
+  const inboundIds = isRelay ? [] : await readManagedInboundIds(config);
+  const reports = [];
+  for (const port of ports) {
+    const key = String(port);
+    const prev = previous[key] || { up: 0, down: 0 };
+    const uploadBytes = Math.max(0, (counter[key]?.up || 0) - (prev.up || 0));
+    const downloadBytes = Math.max(0, (counter[key]?.down || 0) - (prev.down || 0));
+    if (uploadBytes === 0 && downloadBytes === 0) {
+      continue;
+    }
+    reports.push({
+      kind: isRelay ? "relay" : "node",
+      inboundId: isRelay ? null : inboundIds[0] || null,
+      entryPort: isRelay ? port : undefined,
+      uploadBytes,
+      downloadBytes
+    });
   }
-  const inboundIds = await readManagedInboundIds(config);
   return {
     counter,
     ports,
-    reports: [
-      {
-        kind: "node",
-        inboundId: inboundIds[0] || null,
-        uploadBytes,
-        downloadBytes
-      }
-    ]
+    reports
   };
 }

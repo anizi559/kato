@@ -223,6 +223,13 @@ const columns = {
     { key: "total", label: "今日总量", width: "120px" },
     { key: "updatedAt", label: "统计日期", width: "120px" },
   ],
+  trafficRelayStat: [
+    { key: "name", label: "中转服务器", primary: true, width: "220px", subKey: "summary" },
+    { key: "upload", label: "上传", width: "110px" },
+    { key: "download", label: "下载", width: "110px" },
+    { key: "total", label: "今日总量", width: "120px" },
+    { key: "updatedAt", label: "统计日期", width: "120px" },
+  ],
   domains: [
     { key: "name", label: "域名", primary: true, width: "200px", subKey: "summary" },
     { key: "status", label: "状态", width: "72px", render: (row) => <StatePill>{row.status}</StatePill> },
@@ -600,6 +607,23 @@ const resourceConfigs = {
     relationRows: [["状态", "status"]],
     metricRows: [["节点 ID", "id"], ["摘要", "summary"]],
     preview: (row) => `node_traffic: ${row.id}\nupload: ${row.upload}\ndownload: ${row.download}\ntotal: ${row.total}\ndate: ${row.updatedAt}`,
+  },
+  "traffic-relays-stat": {
+    title: "今日中转流量",
+    subtitle: "按中转服务器汇总今日上传、下载与总量（每 1 分钟采集）",
+    data: [],
+    columns: columns.trafficRelayStat,
+    tableLabel: "今日中转流量列表",
+    searchPlaceholder: "搜索中转服务器名称或状态...",
+    searchKeys: ["id", "name"],
+    segments: [{ label: "全部", value: "All" }],
+    filters: [
+      { key: "status", label: "状态", options: ["全部", "正常"] },
+    ],
+    detailRows: [["上传", "upload"], ["下载", "download"], ["今日总量", "total"], ["统计日期", "updatedAt"]],
+    relationRows: [["状态", "status"]],
+    metricRows: [["中转 ID", "id"], ["摘要", "summary"]],
+    preview: (row) => `relay_traffic: ${row.id}\nupload: ${row.upload}\ndownload: ${row.download}\ntotal: ${row.total}\ndate: ${row.updatedAt}`,
   },
   domains: {
     title: "域名证书",
@@ -1020,6 +1044,7 @@ function adaptBackendResources({ collections, agents: rawAgents, summary, alerts
     traffic: (trafficSummary?.users || []).map((user) => adaptTrafficRow(user)),
     trafficToday: trafficSummary?.today || null,
     trafficNodes: (trafficSummary?.today?.byInbound || []).map((row) => adaptTrafficNode(row, context, trafficSummary.today.date)),
+    trafficRelays: (trafficSummary?.today?.byRelay || []).map((row) => adaptTrafficRelay(row, context, trafficSummary.today.date)),
     config: adaptConfigReleases(summary, agentsRaw),
   };
 }
@@ -1121,6 +1146,23 @@ function adaptTrafficNode(row, context, date) {
     name: inbound?.name || row.inboundId,
     summary: inbound ? "代理节点入站" : "未知入站",
     group: "今日节点流量",
+    upload: formatBytes(row.uploadBytes),
+    download: formatBytes(row.downloadBytes),
+    total: formatBytes(row.totalBytes),
+    updatedAt: isoText(`${date}T00:00:00+08:00`),
+    status: "正常",
+  };
+}
+
+function adaptTrafficRelay(row, context, date) {
+  const relay = context.relayById.get(row.transitRelayId);
+  return {
+    id: relay?.name || row.transitRelayId,
+    resourceId: row.transitRelayId,
+    raw: row,
+    name: relay?.name || row.transitRelayId,
+    summary: relay ? "中转服务器入口" : "未知中转",
+    group: "今日中转流量",
     upload: formatBytes(row.uploadBytes),
     download: formatBytes(row.downloadBytes),
     total: formatBytes(row.totalBytes),
@@ -2660,7 +2702,7 @@ function TrafficPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit,
     { label: "今日总流量", value: today ? formatBytes(today.totalBytes) : "0 B", tone: today?.totalBytes ? "success" : "warning" },
     { label: "上传", value: today ? formatBytes(today.uploadBytes) : "0 B", tone: "success" },
     { label: "下载", value: today ? formatBytes(today.downloadBytes) : "0 B", tone: "success" },
-    { label: "活跃节点", value: String(today?.activeInbounds || 0), tone: today?.activeInbounds ? "success" : "warning" },
+    { label: "活跃入口", value: String((today?.activeInbounds || 0) + (today?.activeRelays || 0)), tone: (today?.activeInbounds || today?.activeRelays) ? "success" : "warning" },
   ];
   const routeProps = {
     resourceData,
@@ -2698,6 +2740,22 @@ function TrafficPage({ resourceData, showToast, setDrawerOpen, onCreate, onEdit,
           sectionId="traffic-nodes"
           config={resourceConfigs["traffic-nodes"]}
           rows={resourceData.trafficNodes || []}
+          {...routeProps}
+          embedded
+        />
+      </section>
+      <section className="transit-panel">
+        <div className="transit-panel__header">
+          <div>
+            <h2>今日中转流量</h2>
+            <p>按中转服务器汇总今日上传、下载与总量（每 1 分钟采集）</p>
+          </div>
+        </div>
+        <ResourceRoute
+          key="traffic-relays"
+          sectionId="traffic-relays-stat"
+          config={resourceConfigs["traffic-relays-stat"]}
+          rows={resourceData.trafficRelays || []}
           {...routeProps}
           embedded
         />

@@ -36,6 +36,7 @@ install.sh              # 一键安装/升级脚本
 
 - [架构与技术点](docs/architecture.md)
 - [问题与解决方案](docs/problems-and-solutions.md)
+- [一键脚本使用说明](docs/scripts-usage.md)
 - [Agent 协议](docs/api/agent-protocol.md)
 - [OpenAPI 概览](docs/api/openapi.yaml)
 - 完整安装/使用/运维 Wiki 本地保留（不随仓库上传）。

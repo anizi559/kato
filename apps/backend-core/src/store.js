@@ -372,8 +372,8 @@ export class JsonStore {
         userIds.push(user.id);
       }
     }
-    if (this.state.trafficLogs.length > 100000) {
-      this.state.trafficLogs.splice(0, this.state.trafficLogs.length - 100000);
+    if (this.state.trafficLogs.length > 50000) {
+      this.state.trafficLogs.splice(0, this.state.trafficLogs.length - 50000);
     }
     agent.lastTrafficReport = {
       reports,

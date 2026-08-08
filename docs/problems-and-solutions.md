@@ -117,3 +117,9 @@
 **问题**：后端统一存储 UTC（ISO 时间），前端原先只是把 `T` 换成空格直接截断显示，导致所有时间（最近使用、创建时间、告警/审计时间）都比北京时间慢 8 小时。
 
 **方案**：前端 `isoText` 改用 `Intl.DateTimeFormat` 按面板时区（默认 Asia/Shanghai，跟随系统设置 `timezone`）转换后显示；该修复对所有时间字段统一生效。
+
+## 17. 移动端列表勾选框/操作按钮错位
+
+**问题**：720px 以下列表卡片化后，勾选框和“更多操作”按钮仍被 `.resource-table td { width:100% !important }` 撑成整行宽，导致勾选框溢出卡片、操作按钮与文字重叠。
+
+**方案**：移动端样式改用更高特异性的 `.resource-table .checkbox-cell / .resource-table .actions-cell`，固定小尺寸并 `display:flex` 定位到卡片右上/右下角；已用 390px 视口实测无溢出、无重叠。

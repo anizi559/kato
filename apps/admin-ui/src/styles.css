@@ -2192,20 +2192,36 @@ a {
     display: none;
   }
 
-  .checkbox-cell {
+  .resource-table .checkbox-cell {
     position: absolute;
     top: 14px;
     right: 14px;
-    width: auto !important;
+    left: auto;
+    width: 22px !important;
+    height: 20px;
     padding: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .actions-cell {
+  .resource-table .checkbox-cell input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+
+  .resource-table .actions-cell {
     position: absolute;
     right: 7px;
     bottom: 7px;
-    width: auto !important;
+    left: auto;
+    width: 34px !important;
+    height: 28px;
     padding: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .name-button {

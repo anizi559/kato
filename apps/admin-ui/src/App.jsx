@@ -529,6 +529,7 @@ const resourceConfigs = {
     detailRows: [["角色", "role"], ["状态", "status"], ["版本", "version"], ["最近心跳", "heartbeat"]],
     relationRows: [["配置版本", "configVersion"], ["最近应用", "lastApply"], ["创建时间", "createdAt"]],
     metricRows: [["应用时间", "appliedAt"], ["安装令牌", () => "仅生成时展示"]],
+    editHint: "Agent 名称由服务器注册时自动同步，不能直接修改；要改服务器显示名称，请用下方按钮跳到对应服务器页签编辑资源。",
     preview: (row) => `agent: ${row.id}\nrole: ${row.role}\nconfig_revision: ${row.configVersion}\nlast_apply: ${row.lastApply}`,
   },
   health: {
@@ -2245,7 +2246,7 @@ function KeyValueSection({ title, rows, compact = false }) {
   );
 }
 
-function GenericInspector({ item, config, onClose, onEdit, onDelete, onToggleEnabled, canWrite, onResetSubscription, backendSettings }) {
+function GenericInspector({ item, config, onClose, onEdit, onDelete, onToggleEnabled, canWrite, onResetSubscription, backendSettings, onEditResource }) {
   if (!item) return null;
 
   const detailRows = (config.detailRows || []).map(([label, value]) => ({ label, value: getValue(item, value) }));
@@ -2310,6 +2311,14 @@ function GenericInspector({ item, config, onClose, onEdit, onDelete, onToggleEna
         onToggleEnabled={onToggleEnabled}
         disabled={item.raw?.enabled === false}
       />
+      {config.editHint ? (
+        <p className="drawer-note" style={{ margin: "10px 0 0" }}>{config.editHint}</p>
+      ) : null}
+      {onEditResource ? (
+        <button className="button button--secondary button--blue" type="button" style={{ marginTop: 10 }} onClick={() => onEditResource(item)}>
+          <IconNetwork size={16} stroke={1.9} />编辑对应服务器资源
+        </button>
+      ) : null}
       <ConfigPreview title="配置预览" note="节选" content={config.preview ? config.preview(item) : JSON.stringify(item, null, 2)} />
     </InspectorShell>
   );
@@ -2346,7 +2355,7 @@ function Pagination({ total }) {
   );
 }
 
-function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, headerLevel = "h1", primaryDisabled = false, secondaryDisabled = false, inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onToggleSelected, onResetSubscription, backendSettings }) {
+function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, onSelect, onPrimary, onSecondary, onRefresh, embedded = false, headerLevel = "h1", primaryDisabled = false, secondaryDisabled = false, inspectorOpen, onOpenInspector, onCloseInspector, onEditSelected, onDeleteSelected, onToggleSelected, onResetSubscription, backendSettings, onEditResource }) {
   const PrimaryIcon = config.primaryIcon || IconPlus;
   const SecondaryIcon = config.secondaryIcon || IconPlus;
   const hasRows = rows.length > 0;
@@ -2417,6 +2426,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
             onClose={onCloseInspector}
             onResetSubscription={onResetSubscription}
             backendSettings={backendSettings}
+            onEditResource={onEditResource}
           />
         </div>
       ) : null}
@@ -2424,7 +2434,7 @@ function ResourcePage({ config, state, rows, totalRows, selectedItem, canWrite, 
   );
 }
 
-function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false, headerLevel = "h1" }) {
+function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawerOpen, onCreate, onEdit, onDelete, onToggle, onReload, onGenerateBootstrap, onResetSubscription, backendSettings, embedded = false, headerLevel = "h1", onEditResource }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("All");
   const [filterValues, setFilterValues] = useState(() => {
@@ -2519,6 +2529,7 @@ function ResourceRoute({ sectionId, config, rows: dataRows, showToast, setDrawer
       onToggleSelected={(item) => item && onToggle && onToggle(sectionId, item)}
       onResetSubscription={onResetSubscription}
       backendSettings={backendSettings}
+      onEditResource={onEditResource}
     />
   );
 }
@@ -2552,6 +2563,26 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
 
   if (!config) return null;
 
+  function handleEditAgent(item) {
+    const roleToSection = {
+      "proxy-node": "proxy-nodes",
+      "transit-relay": "transit-relays",
+      "frontend-edge": "frontend-edges",
+      "subscription-edge": "subscription-edges"
+    };
+    const targetSectionId = roleToSection[item?.raw?.role];
+    const targetTab = tabs.find((entry) => entry.sectionId === targetSectionId);
+    const row = targetSectionId
+      ? (resourceData[targetSectionId] || []).find((entry) => entry.resourceId === item?.raw?.resourceId)
+      : null;
+    if (!targetTab || !row) {
+      showToast("未找到该 Agent 绑定的服务器资源");
+      return;
+    }
+    setActiveTab(targetTab.id);
+    onEdit(targetSectionId, row);
+  }
+
   return (
     <div className="workspace-shell">
       <section className="main-pane main-pane--wide">
@@ -2579,6 +2610,7 @@ function ResourceWorkspacePage({ title, subtitle, tabs, initialTab, resourceData
         onGenerateBootstrap={onGenerateBootstrap}
         onResetSubscription={onResetSubscription}
         backendSettings={backendSettings}
+        onEditResource={sectionId === "agents" ? handleEditAgent : undefined}
       />
     </div>
   );
